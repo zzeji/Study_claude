@@ -162,6 +162,16 @@
   .look-temp{ font-size:11.5px; font-weight:600; color:var(--sub); }
   .look-title{ font-size:15px; font-weight:800; letter-spacing:-.4px; margin-bottom:3px; }
   .look-reason{ font-size:11.5px; color:var(--sub); letter-spacing:-.1px; margin-bottom:10px; }
+  /* 코디 성격 배지 + 한 줄 색조합 */
+  .look-style{ display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin:2px 0 7px; }
+  .style-badge{
+    display:inline-flex; align-items:center; gap:4px; padding:4px 9px; border-radius:99px;
+    font-size:11px; font-weight:800; letter-spacing:-.2px; white-space:nowrap;
+  }
+  .style-badge.safe{ background:#eef0ee; color:#4a5b52; }
+  .style-badge.exp{ background:#fbe8ef; color:#a8385c; }
+  .style-badge.exp.chic{ background:#eee9f7; color:#5a3f8a; }
+  .color-note{ font-size:11.5px; font-weight:700; color:#6b5747; letter-spacing:-.3px; }
   .look-items{ display:flex; flex-direction:column; gap:2px; }
   .look-item{
     display:grid; grid-template-columns:46px 12px 1fr auto; align-items:center; gap:7px;
@@ -639,6 +649,7 @@
       <div id="lookNotice"></div>
       <p class="footnote">
         코디 카드는 옆으로 넘겨서 봐요 — 상품 사진 누끼로 만든 룩북이에요.<br>
+        🧤 데일리 무난 + 🎨 핀터 감성·실험적 색조합을 섞어 5개를 추천해요.<br>
         마음에 안 드는 코디는 👎로 알려주시면 다시 추천하지 않아요.
       </p>
     </section>
@@ -752,7 +763,7 @@
 /* ══════════════════════════════════════════════════════════════
    0. 상수 · 스키마
    ══════════════════════════════════════════════════════════════ */
-var APP_VERSION = '1.4.2';  /* 1.4.2: 12°C 미만 여름옷(반팔·나시·반바지·여름용·린넨) 하드 제외 + 온도 허용 오차 축소 */
+var APP_VERSION = '1.4.3';  /* 1.4.3: 코디 5개 = 무난(데일리) 2~3 + 실험적/핀터 색조합 2~3, 카드에 배지 + 색조합 한 줄, 새로 추천 시 조합 변화 */
 var SCHEMA_VERSION = 4;
 var STORAGE_KEY = 'wardrobeApp.v1';
 
@@ -1815,7 +1826,8 @@ function harmonyColors(items){
   return { reject:false, score:score };
 }
 
-function evaluateLook(items, mood, T){
+function evaluateLook(items, mood, T, opts){
+  opts = opts || {};
   /* 소재 궁합은 몸통에 입는 옷(상의·하의·아우터·원피스)만 본다. 신발·소품은 소재보다 역할이 중요 */
   var bodyItems = items.filter(function(i){ return isBodyCategory(i.category); });
 
@@ -1849,7 +1861,7 @@ function evaluateLook(items, mood, T){
     if (T <= 12 && outerWarmth < Math.min(0.45, outerCap - 0.02)) return null;
   }
 
-  var color = harmonyColors(items);
+  var color = opts.freeColor ? pinPaletteScore(items) : harmonyColors(items);
   if (color.reject) return null;
 
   var score = color.score;
@@ -1877,7 +1889,7 @@ function evaluateLook(items, mood, T){
   if (hasBag) score += 6;
   else if (closetHasBag) score -= 3;
 
-  return { score: score };
+  return { score: score, palette: color.palette || null, scheme: color.scheme || '' };
 }
 
 function signatureOf(items){
@@ -1920,6 +1932,296 @@ function closetHasMoodKey(moodKey){
 function moodIsAvailable(mood){
   if (closetHasMoodKey(mood.key)) return true;
   return state.items.some(function(i){ return i.moods && i.moods[mood.key] >= 3; });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   6-3. 색조합(Pinterest) 엔진
+   - 무난 코디: 뉴트럴·기본 톤(블랙·화이트/아이보리·그레이·네이비·베이지) 위주
+   - 실험 코디: 유채색·포인트 아이템으로 톤온톤 · 어스+쿨 · 보색 포인트 배색
+   - 기온·계절 하드 필터(summerBlocked)와 두께·소재 규칙은 evaluateLook이 그대로 적용
+   ══════════════════════════════════════════════════════════════ */
+var COLOR_FAMILY_BY_NAME = {
+  '블랙':'neutral', '차콜':'neutral', '그레이':'neutral', '실버':'neutral',
+  '화이트':'neutral', '아이보리':'neutral', '크림':'neutral',
+  '네이비':'cool', '인디고':'cool', '블루':'cool', '스카이 블루':'cool', '연청':'cool',
+  '베이지':'earth', '카멜':'earth', '브라운':'earth', '카키':'earth',
+  '올리브':'green', '그린':'green', '민트':'green',
+  '버건디':'wine', '레드':'wine', '핑크':'wine',
+  '옐로우':'yellow', '오렌지':'orange', '라벤더':'purple', '골드':'metal'
+};
+var VIVID_FAMILIES = { wine:1, green:1, yellow:1, orange:1, purple:1 };
+var COLOR_SHORT = { '스카이 블루':'소라' };
+
+function isVividFamily(f){ return !!VIVID_FAMILIES[f]; }
+
+/* 색 이름 → 배색 계열 (이름이 비면 색상값으로 추정) */
+function colorFamilyOf(item){
+  var name = (item && item.colorName) || '';
+  if (COLOR_FAMILY_BY_NAME[name]) return COLOR_FAMILY_BY_NAME[name];
+  var m = colorMeta(item || {});
+  if (m.s < 0.20 || m.l < 0.16 || m.l > 0.90) return 'neutral';
+  var h = m.h;
+  if (h >= 190 && h <= 250) return 'cool';
+  if (h >= 15 && h <= 45 && m.s < 0.45) return 'earth';
+  if (h > 55 && h < 170) return 'green';
+  if (h >= 330 || h <= 12) return 'wine';
+  if (h > 45 && h <= 60) return 'yellow';
+  return 'wine';
+}
+
+function colorWord(item){
+  var n = (item && item.colorName) || '';
+  return COLOR_SHORT[n] || n || '미지정';
+}
+
+function pieceWord(item){
+  if (!item) return '';
+  if (item.category === 'outer')
+    return /코트/.test(item.name) ? '코트' : (/자켓|재킷/.test(item.name) ? '재킷' : '아우터');
+  if (item.category === 'dress') return '원피스';
+  if (item.category === 'bag') return '백';
+  if (item.category === 'bottom') return /스커트|치마/.test(item.name) ? '스커트' : '팬츠';
+  if (item.category === 'top') {
+    var mk = item.materialKey;
+    if (mk === 'knit' || mk === 'cashmere' || mk === 'wool') return '니트';
+    if (/블라우스|셔츠/.test(item.name)) return '블라우스';
+    return '탑';
+  }
+  return catLabel(item.category);
+}
+
+/* 코디의 색 구성 읽기 */
+function paletteInfo(items){
+  var body = items.filter(function(i){ return isBodyCategory(i.category); });
+  var bag = items.filter(function(i){ return i.category === 'bag'; })[0] || null;
+  var fams = {};
+  body.forEach(function(it){ var f = colorFamilyOf(it); fams[f] = (fams[f] || 0) + 1; });
+  var vivid = 0;
+  Object.keys(fams).forEach(function(f){ if (isVividFamily(f)) vivid += fams[f]; });
+  var neutral = fams.neutral || 0, cool = fams.cool || 0, earth = fams.earth || 0;
+  var distinct = Object.keys(fams).length;
+  var bagFamily = bag ? colorFamilyOf(bag) : '';
+  var nonNeutral = body.filter(function(i){ return colorFamilyOf(i) !== 'neutral'; });
+
+  /* 톤온톤: 같은 계열 두 벅의 명도 차 */
+  var tone = false;
+  for (var i = 0; i < nonNeutral.length; i++) {
+    for (var j = i + 1; j < nonNeutral.length; j++) {
+      if (colorFamilyOf(nonNeutral[i]) !== colorFamilyOf(nonNeutral[j])) continue;
+      if (Math.abs(colorMeta(nonNeutral[i]).l - colorMeta(nonNeutral[j]).l) >= 0.10) tone = true;
+    }
+  }
+  /* 보색(120°+)·유사색(18~55°)·어중간한 중간색 — 보색은 유채색이 한쪽이라도 끼여야 인정 */
+  var colored = body.filter(function(i){ var f = colorFamilyOf(i); return f !== 'neutral' && f !== 'cool'; })
+    .map(function(i){ return { h:colorMeta(i).h, vivid:isVividFamily(colorFamilyOf(i)) }; });
+  var comp = false, analog = false, muddy = false;
+  for (i = 0; i < colored.length; i++) {
+    for (j = i + 1; j < colored.length; j++) {
+      var d = hueDiff(colored[i].h, colored[j].h);
+      if (d >= 120 && (colored[i].vivid || colored[j].vivid)) comp = true;
+      if (d >= 18 && d <= 55) analog = true;
+      if (d > 55 && d < 110) muddy = true;
+    }
+  }
+  var scheme = 'point';
+  var vividBody = body.filter(function(it){ return isVividFamily(colorFamilyOf(it)); });
+  var bagContrast = false;
+  if (vividBody.length && bag && isVividFamily(bagFamily)) {
+    if (hueDiff(colorMeta(vividBody[0]).h, colorMeta(bag).h) >= 60) bagContrast = true;
+  }
+  if (vivid >= 2 || bagContrast || (comp && vivid >= 1)) scheme = 'contrast';
+  else if (tone) scheme = 'tone';
+  else if (cool && earth) scheme = 'earthcool';
+  else if (bagFamily && bagFamily !== 'neutral' && bagFamily !== 'metal') scheme = 'accbag';
+  return { fams:fams, vivid:vivid, neutral:neutral, cool:cool, earth:earth, distinct:distinct,
+           bagFamily:bagFamily, tone:tone, comp:comp, analog:analog, muddy:muddy, scheme:scheme };
+}
+
+/* 실험 코디용 배색 점수 (색이 실제로 있지 않으면 탈락) */
+function pinPaletteScore(items){
+  var p = paletteInfo(items);
+  if (p.vivid > 2) return { reject:true, score:0 };
+  if (p.distinct > 4) return { reject:true, score:0 };
+  var hasColor = p.vivid >= 1 || (p.cool && p.earth) ||
+                 (p.bagFamily && isVividFamily(p.bagFamily));
+  if (!hasColor) return { reject:true, score:0 };
+
+  var score = -(p.distinct - 1) * 1.5;
+  if (p.vivid === 1) score += 12;
+  if (p.vivid === 2) score += 9;
+  if (p.cool && p.earth) score += 10;          /* 카멜 × 소라 같은 어스+쿨 */
+  if (p.neutral >= 1) score += 6; else score -= 3;
+  if (p.tone) score += 8;
+  if (p.analog) score += 4;
+  if (p.comp) score += 3;
+  if (p.muddy) score -= 4;
+  if (p.bagFamily && p.bagFamily !== 'neutral' && p.bagFamily !== 'metal') score += 5;
+  if (p.vivid >= 1 && p.neutral === 0 && p.cool === 0 && p.earth === 0) score -= 8;
+  return { reject:false, score:score, palette:p, scheme:p.scheme };
+}
+
+/* 한 줄 색조합: "카멜 코트 × 소라 니트 × 핑크 백 포인트" */
+function colorNoteOf(items, pointMode){
+  var pick = function(c){ return items.filter(function(i){ return i.category === c; })[0] || null; };
+  var outer = pick('outer'), top = pick('top'), dress = pick('dress'),
+      bottom = pick('bottom'), bag = pick('bag');
+  var body = [];
+  if (outer) body.push(outer);
+  if (top) body.push(top); else if (dress) body.push(dress);
+  if (bottom) body.push(bottom);
+  var vividBody = body.filter(function(it){ return colorFamilyOf(it) !== 'neutral'; });
+  var neutralBody = body.filter(function(it){ return colorFamilyOf(it) === 'neutral'; });
+  var bagF = bag ? colorFamilyOf(bag) : '';
+  /* 가방은 유채색·쿨 계열일 때만 '포인트', 어스색이면 톤을 이어 주는 역할 */
+  var bagPoint = !!bag && (isVividFamily(bagF) || bagF === 'cool');
+  var chosen = vividBody.slice(0, bagPoint ? 2 : 3);
+  if (chosen.length < 2) chosen = chosen.concat(neutralBody.slice(0, 2 - chosen.length));
+  if (!chosen.length) chosen = neutralBody.slice(0, 3);
+  var parts = chosen.map(function(it){ return colorWord(it) + ' ' + pieceWord(it); });
+  if (bagPoint) parts.push(colorWord(bag) + ' 백' + (pointMode ? ' 포인트' : ''));
+  else if (bag && chosen.length < 3) parts.push(colorWord(bag) + ' 백');
+  return parts.join(' × ');
+}
+
+/* 카드에 붙는 성격 브랜드 링 + 색조합 한 줄 */
+function lookStyleInfo(items, kind){
+  var p = paletteInfo(items);
+  var contrast = (p.vivid >= 2) || (p.comp && p.vivid >= 1) || p.scheme === 'contrast';  var exp = (kind === 'exp') || p.vivid >= 2;
+  var badge, cls;
+  if (exp) {
+    badge = contrast ? '실험적 색조합 🎨' : '핀터 감성 ✨';
+    cls = contrast ? 'exp chic' : 'exp';
+  } else {
+    badge = '데일리 무난';
+    cls = 'safe';
+  }
+  return { kind:kind || 'safe', exp:exp, contrast:contrast, badge:badge, cls:cls,
+           note:colorNoteOf(items, exp), palette:p };
+}
+
+/* 실험 코디의 주인공 색 (색 이름 기준 — 같은 색 니트를 바꿔 입은 코디는 한 번만) */
+function heroIdOf(items){
+  var vivid = items.filter(function(i){ return isBodyCategory(i.category) && isVividFamily(colorFamilyOf(i)); })[0];
+  if (vivid) return 'c:' + (vivid.colorName || vivid.id);
+  var bag = items.filter(function(i){ return i.category === 'bag' && isVividFamily(colorFamilyOf(i)); })[0];
+  if (bag) return 'c:' + (bag.colorName || bag.id);
+  var any = items.filter(function(i){ return isBodyCategory(i.category) && colorFamilyOf(i) !== 'neutral'; })[0];
+  return any ? ('c:' + (any.colorName || any.id)) : '';
+}
+
+function bestMoodFor(items){
+  if (!items.length) return MOOD_BY_KEY.casual_daily;
+  var best = MOODS[0], bestS = -Infinity;
+  MOODS.forEach(function(m){
+    var s = 0;
+    items.forEach(function(i){ s += ((i.moods && i.moods[m.key]) || 0) * 3; });
+    var avgF = items.reduce(function(a, i){ return a + (i.formality || 3); }, 0) / items.length;
+    s -= Math.abs(avgF - m.formality) * 8;
+    if (s > bestS) { bestS = s; best = m; }
+  });
+  return best;
+}
+
+/* 색을 기준으로 후보 점수 매기기 (무드 페널티 없이) */
+function colorCandidateScore(item, T){
+  var fit = tempFit(item, T);
+  if (fit <= 0.02) return -Infinity;
+  if (isBodyCategory(item.category) && summerBlocked(item, T)) return -Infinity;
+  var m = item.materialKey ? matOf(item) : { warmth:0.5 };
+  var warmthPenalty = Math.abs(m.warmth - targetWarmth(item.category, T)) * 10;
+  var outsideRange = (T < item.tempMin || T > item.tempMax);
+  var fam = colorFamilyOf(item);
+  var colorBonus = isVividFamily(fam) ? 9 : ((fam === 'cool' || fam === 'earth') ? 5 : 0);
+  var summerPenalty = (isBodyCategory(item.category) && isSummerWear(item) && T < SUMMER_SOFT_TEMP) ? 10 : 0;
+  return fit * 40 - warmthPenalty - (outsideRange ? 12 : 0) -
+         (item.materialKey ? 0 : 6) - summerPenalty + colorBonus;
+}
+
+var FREE_MOOD = { key:'__free', label:'', emoji:'', formality:3, desc:'' };
+
+function buildColorCandidates(T){
+  var excluded = {};
+  state.dislikes.forEach(function(d){ excluded[d.signature] = 1; });
+
+  function pick(cat, n, keep){
+    return state.items.filter(function(i){ return i.category === cat && (!keep || keep(i)); })
+      .map(function(i){ return { i:i, s:colorCandidateScore(i, T) }; })
+      .filter(function(x){ return x.s > -Infinity; })
+      .sort(function(a, b){ return b.s - a.s; })
+      .slice(0, n).map(function(x){ return x.i; });
+  }
+
+  var tops = pick('top', 14);
+  var bottoms = pick('bottom', 8);
+  var dresses = pick('dress', 3);
+  var outerNeed = 0;
+  var outerCap = state.items.filter(function(i){ return i.category === 'outer'; })
+    .reduce(function(m, i){ return Math.max(m, matOf(i).warmth); }, 0);
+  if (T <= 6) outerNeed = Math.min(0.75, outerCap - 0.02);
+  else if (T <= 12) outerNeed = Math.min(0.45, outerCap - 0.02);
+  var outers = (T <= 18) ? pick('outer', 6, function(i){ return matOf(i).warmth >= outerNeed; }) : [];
+  if (T <= 18 && !outers.length) outers = pick('outer', 6);
+  var bags = pick('bag', 6);
+
+  var bases = [];
+  tops.forEach(function(t){ bottoms.forEach(function(b){ bases.push([t, b]); }); });
+  dresses.forEach(function(d){ bases.push([d]); });
+  if (!bases.length) return [];
+
+  var outerList = (T <= 18) ? outers.concat([null]) : [null];
+  var bagList = bags.length ? bags.concat([null]) : [null];
+  var out = [], seen = {};
+
+  bases.forEach(function(base){
+    outerList.forEach(function(outer){
+      bagList.forEach(function(bag){
+        var items = base.slice();
+        if (outer) items.push(outer);
+        if (bag) items.push(bag);
+        var sig = signatureOf(items);
+        if (excluded[sig] || seen[sig] || isDislikedItems(items)) return;
+        var ev = evaluateLook(items, FREE_MOOD, T, { freeColor:true });
+        if (!ev) return;
+        seen[sig] = 1;
+        out.push({ signature:sig, items:items, score:ev.score, hero:heroIdOf(items), scheme:ev.scheme });
+      });
+    });
+  });
+
+  out.sort(function(a, b){ return b.score - a.score; });
+  /* 색 조합이 사실상 같은 후보(같은 포인트 색·같은 가방·같은 아우터)는 한 번만 남겨
+     하의만 바꾼 '같은 코디'로 카드를 채우지 않도록 한다. */
+  var seenColor = {}, list = [];
+  out.forEach(function(c){
+    var p = paletteInfo(c.items);
+    var bodyColors = c.items.filter(function(i){
+      return isBodyCategory(i.category) && colorFamilyOf(i) !== 'neutral';
+    }).map(function(i){ return i.colorName || '-'; }).sort().join('+');
+    var outer = c.items.filter(function(i){ return i.category === 'outer'; })[0];
+    var key = bodyColors + '|' + (p.bagFamily || '-') + '|' + (outer ? (outer.colorName || '-') : '-');
+    if (seenColor[key]) return;
+    seenColor[key] = 1;
+    list.push(c);
+  });
+
+  /* 아우터 색 × 가방 계열별로 돌아가며 담아, 한 아우터와 한 가방만 반복되는 일을 막는다 */
+  var buckets = {}, order = [];
+  list.forEach(function(c){
+    var oc = c.items.filter(function(i){ return i.category === 'outer'; })[0];
+    var p2 = paletteInfo(c.items);
+    var k = (oc ? (oc.colorName || '-') : '-') + '|' + (p2.bagFamily || '-');
+    if (!buckets[k]) { buckets[k] = []; order.push(k); }
+    buckets[k].push(c);
+  });
+  var mixed = [], more = true;
+  while (mixed.length < 20 && more) {
+    more = false;
+    for (var bi = 0; bi < order.length; bi++) {
+      var b = buckets[order[bi]];
+      if (b.length && mixed.length < 20) { mixed.push(b.shift()); more = true; }
+    }
+  }
+  return mixed;
 }
 
 function buildCandidates(mood, T){
@@ -2064,12 +2366,27 @@ function describeLook(items, mood, T){
   return '체감 ' + T + '°C · ' + mats.slice(0, 3).join(' / ') + ' · ' + colorText;
 }
 
+/* '새로 추천'을 누를 때마다 조합이 바뀌게 하는 시드 (0이면 최고점 고정) */
+var REC_SEED = 0;
+function bumpRecSeed(){
+  REC_SEED = (REC_SEED + 1) % 9973;
+  return REC_SEED;
+}
+function seedRnd(){
+  REC_SEED = (REC_SEED * 16807 + 12345) % 2147483647;
+  return REC_SEED / 2147483647;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   코디 5개 = 무난(데일리) 2~3 + 실험적/핀터 색조합 2~3
+   ══════════════════════════════════════════════════════════════ */
 function computeLooks(T){
   state.lookPool = {};
   var pools = [];
   MOODS.forEach(function(mood){
     if (!moodIsAvailable(mood)) return;
     var cands = buildCandidates(mood, T);
+    cands.forEach(function(c){ c.style = lookStyleInfo(c.items, 'safe'); });
     state.lookPool[mood.key] = cands;
     if (cands.length) pools.push({ mood:mood, cands:cands });
   });
@@ -2084,25 +2401,37 @@ function computeLooks(T){
 
   var used = {};
   var usedItems = {};
-  var looks = [];
+  var bagUsed = {};
+  function bagOf(items){ return items.filter(function(i){ return i.category === 'bag'; })[0] || null; }
 
-  /* 이미 고른 코디와 최소 minDiff벌은 달라야 한다(무드가 달라도 같은 옷만 바꿔 입은 듯한 카드는 피함) */
+  /* 이미 고른 코디와 최소 minDiff벌은 달라야 한다(무드가 달라도 같은 옷만 바꿔 입은 듯한 카드는 피함)
+     무난 코디는 유사색이 적은 조합을 우선해 '기본 톤'을 지킨다. */
   function chooseFor(p, minDiff, requireKey){
-    var best = null, bestAdj = -Infinity;
+    var list = [];
     for (var i = 0; i < p.cands.length; i++) {
       var c = p.cands[i];
       if (used[c.signature]) continue;
       if (requireKey && !c.items.some(function(it){ return isMoodKeyPiece(it, p.mood.key); })) continue;
       var fresh = c.items.filter(function(it){ return !usedItems[it.id]; }).length;
       if (fresh < minDiff) continue;
-      var adj = c.score - (c.items.length - fresh) * 6;
-      if (adj > bestAdj) { bestAdj = adj; best = c; }
+      var vivid = c.style ? c.style.palette.vivid : 0;
+      var bagVivid = c.style && isVividFamily(c.style.palette.bagFamily) ? 1 : 0;
+      var styleBonus = vivid === 0 ? (bagVivid ? 4 : 12) : (vivid === 1 ? (bagVivid ? -8 : -6) : -40);
+      var bg = bagOf(c.items);
+      if (bg && bagUsed[bg.colorName || '-']) styleBonus -= 6;
+      list.push({ c:c, adj: c.score + styleBonus - (c.items.length - fresh) * 6 });
     }
-    return best;
+    if (!list.length) return null;
+    list.sort(function(a, b){ return b.adj - a.adj; });
+    var top = Math.min(REC_SEED > 0 ? 4 : 1, list.length);
+    var idx = top > 1 ? Math.floor(seedRnd() * top) : 0;
+    return list[idx].c;
   }
 
+  /* ── 1) 무난·데일리 코디 (최대 5개까지만 뽑고 실제로는 2~3개 사용) ── */
+  var safeLooks = [];
   pools.forEach(function(p){
-    if (looks.length >= 5) return;
+    if (safeLooks.length >= 5) return;
     var needKey = closetHasMoodKey(p.mood.key);
     var pick = (needKey ? chooseFor(p, 2, true) : null) ||
                (needKey ? chooseFor(p, 1, true) : null) ||
@@ -2112,7 +2441,10 @@ function computeLooks(T){
     if (!pick) return;
     used[pick.signature] = 1;
     pick.items.forEach(function(it){ usedItems[it.id] = 1; });
-    looks.push({
+    var sb = bagOf(pick.items);
+    if (sb) bagUsed[sb.colorName || '-'] = 1;
+    safeLooks.push({
+      kind:'safe',
       moodKey: p.mood.key,
       mood: p.mood,
       signature: pick.signature,
@@ -2121,6 +2453,72 @@ function computeLooks(T){
       candidateIndex: p.cands.indexOf(pick)
     });
   });
+
+  /* ── 2) 실험적 · 핀터 감성 색조합 코디 ── */
+  var expCands = buildColorCandidates(T);
+  var expLooks = [];
+  var heroUsed = {}, schemeUsed = {}, outerUsed = {};
+  while (expLooks.length < 3) {
+    var best = null, bestAdj = -Infinity;
+    for (var i = 0; i < expCands.length; i++) {
+      var c = expCands[i];
+      if (used[c.signature]) continue;
+      var st = lookStyleInfo(c.items, 'exp');
+      var fresh = c.items.filter(function(it){ return !usedItems[it.id]; }).length;
+      var adj = c.score + fresh * 4;
+      if (c.hero && heroUsed[c.hero]) adj -= 40;
+      if (schemeUsed[st.contrast ? 'contrast' : 'soft']) adj -= 10;
+      var oc = c.items.filter(function(it){ return it.category === 'outer'; })[0];
+      var ocName = oc ? (oc.colorName || '-') : '-';
+      if (outerUsed[ocName]) adj -= 14;
+      var cb = bagOf(c.items);
+      if (cb && bagUsed[cb.colorName || '-']) adj -= 10;
+      if (fresh === 0) adj -= 12;
+      if (REC_SEED > 0) adj += (seedRnd() - 0.5) * 6;
+      if (adj > bestAdj) { bestAdj = adj; best = c; }
+    }
+    if (!best) break;
+    var bst = lookStyleInfo(best.items, 'exp');
+    used[best.signature] = 1;
+    best.items.forEach(function(it){ usedItems[it.id] = 1; });
+    if (best.hero) heroUsed[best.hero] = 1;
+    schemeUsed[bst.contrast ? 'contrast' : 'soft'] = 1;
+    var bo = best.items.filter(function(it){ return it.category === 'outer'; })[0];
+    if (bo) outerUsed[bo.colorName || '-'] = 1;
+    var bb = bagOf(best.items);
+    if (bb) bagUsed[bb.colorName || '-'] = 1;
+    expLooks.push({
+      kind:'exp',
+      moodKey: bestMoodFor(best.items).key,
+      mood: bestMoodFor(best.items),
+      signature: best.signature,
+      items: best.items,
+      candidates: expCands,
+      candidateIndex: expCands.indexOf(best)
+    });
+  }
+
+  /* ── 3) 5장 = 무난 3 + 실험 2 (한쪽이 부족하면 2/3으로 기운다) ── */
+  var nSafe = Math.min(3, safeLooks.length);
+  var nExp = Math.min(2, expLooks.length);
+  if (nExp < 2) nSafe = Math.min(5 - nExp, safeLooks.length);
+  if (nSafe < 3) nExp = Math.min(5 - nSafe, expLooks.length);
+  while (nSafe + nExp < 5) {
+    if (nSafe < safeLooks.length) nSafe++;
+    else if (nExp < expLooks.length) nExp++;
+    else break;
+  }
+
+  /* 무난 → 핀터 → 무난 → 핀터 → 무난 순서로 섞어 스와이프 중간에 색조합이 보이게 */
+  var looks = [];
+  var sArr = safeLooks.slice(0, nSafe), eArr = expLooks.slice(0, nExp);
+  var si = 0, ei = 0, turnSafe = true;
+  while (si < sArr.length || ei < eArr.length) {
+    if (turnSafe && si < sArr.length) looks.push(sArr[si++]);
+    else if (ei < eArr.length) looks.push(eArr[ei++]);
+    else if (si < sArr.length) looks.push(sArr[si++]);
+    turnSafe = !turnSafe;
+  }
 
   state.looks = looks;
   return looks;
@@ -3090,6 +3488,7 @@ function renderLooks(){
 
   list.innerHTML = state.looks.map(function(look, idx){
     var items = look.items;
+    var style = lookStyleInfo(items, look.kind || 'safe');
     var missing = suggestMissing(items, look.mood, T);
     var title = items.filter(function(i){ return i.category !== 'acc' && i.category !== 'bag'; })
       .slice(0, 3).map(function(i){ return i.name; }).join(' + ');
@@ -3159,6 +3558,8 @@ function renderLooks(){
       '<span class="look-temp">' + esc(regionShortName()) + ' 체감 ' + T + '°C</span>' +
       '</div>' +
       '<h3 class="look-title">' + esc(title) + '</h3>' +
+      '<div class="look-style"><span class="style-badge ' + style.cls + '">' + style.badge + '</span>' +
+      '<span class="color-note">' + esc(style.note) + '</span></div>' +
       '<p class="look-reason">' + esc(describeLook(items, look.mood, T)) + '</p>' +
       warnHtml +
       '<ul class="look-items">' + rows + '</ul>' +
@@ -3816,6 +4217,9 @@ function cycleLook(index){
     var idx = (start + step) % look.candidates.length;
     var cand = look.candidates[idx];
     if (used[cand.signature] || isDisliked(cand.signature)) continue;
+    /* 무난 카드는 무난 조합만, 실험 카드는 색조합만 돌려 준다 */
+    var st = lookStyleInfo(cand.items, look.kind || 'safe');
+    if ((look.kind || 'safe') === 'safe' && st.exp) continue;
     look.signature = cand.signature;
     look.items = cand.items;
     look.candidateIndex = idx;
@@ -4055,7 +4459,14 @@ function bindEvents(){
   }
 
   $('#refreshBtn').addEventListener('click', function(){
-    recomputeLooks();
+    /* 누를 때마다 무난/실험 비율은 유지하고 조합만 새로 뽑는다 */
+    var before = state.looks.map(function(l){ return l.signature; }).join(';');
+    for (var i = 0; i < 6; i++) {
+      bumpRecSeed();
+      recomputeLooks();
+      var after = state.looks.map(function(l){ return l.signature; }).join(';');
+      if (state.looks.length && after !== before) break;
+    }
     renderLooks();
     toast('새로 추천했어요');
   });
