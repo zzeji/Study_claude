@@ -1,0 +1,2869 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#f4f1ec">
+<title>내 옷장 · 코디 추천</title>
+<!--
+  내 옷장 기반 코디 추천 — 1단계 프로토타입 (단일 HTML, 외부 CDN 없음)
+  =====================================================================
+  2단계(풀스택) 확장 지점
+  1) Providers.productMeta.resolve(url)  → 서버 상품 메타 API 호출로 교체
+  2) Providers.vision.analyze(file)      → 서버 AI 비전 분석으로 교체
+  3) Storage 어댑터                      → 서버 동기화 시 set/get만 교체
+  4) SCHEMA_VERSION + migrate()          → DB 스키마 마이그레이션 훅
+  데이터 모델(state.items)은 서버 테이블과 1:1로 옮길 수 있게 설계했습니다.
+-->
+<style>
+  :root{
+    --bg:#f4f1ec;
+    --card:#fffdfa;
+    --ink:#221f1d;
+    --sub:#7b736a;
+    --line:#e9e2d8;
+    --line-strong:#dcd2c4;
+    --accent:#7b5b45;
+    --accent-soft:#f1e7dc;
+    --accent-ink:#5b4231;
+    --danger:#b03a2e;
+    --danger-soft:#fbeae7;
+    --ok:#3d6b50;
+    --ok-soft:#e8f2ea;
+    --warn:#a06a1f;
+    --warn-soft:#fbf0dd;
+    --radius:20px;
+    --shadow:0 10px 30px rgba(74,55,38,.07);
+    --safe-top:env(safe-area-inset-top, 0px);
+    --safe-bottom:env(safe-area-inset-bottom, 0px);
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", "Helvetica Neue", Arial, sans-serif;
+    font-size:15px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    -webkit-text-size-adjust:100%;
+    padding-bottom:calc(84px + var(--safe-bottom));
+    overscroll-behavior-y:contain;
+  }
+  button{ font-family:inherit; font-size:inherit; color:inherit; border:none; background:none; cursor:pointer; }
+  input,select,textarea{ font-family:inherit; font-size:16px; color:inherit; }
+  h1,h2,h3,p,ul,li,figure{ margin:0; padding:0; list-style:none; }
+  .hidden{ display:none !important; }
+
+  .app{ max-width:520px; margin:0 auto; }
+
+  /* ── 상단 바 ── */
+  .topbar{
+    position:sticky; top:0; z-index:20;
+    padding:calc(10px + var(--safe-top)) 18px 10px;
+    background:rgba(244,241,236,.88);
+    backdrop-filter:saturate(160%) blur(14px);
+    -webkit-backdrop-filter:saturate(160%) blur(14px);
+    border-bottom:1px solid rgba(233,226,216,.9);
+  }
+  .topbar-inner{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .brand{ display:flex; align-items:center; gap:10px; min-width:0; }
+  .brand-mark{
+    width:38px; height:38px; border-radius:12px; background:var(--accent-soft);
+    display:grid; place-items:center; font-size:19px; flex:none;
+  }
+  .brand h1{ font-size:17px; font-weight:700; letter-spacing:-.2px; }
+  .brand p{ font-size:11px; color:var(--sub); letter-spacing:-.1px; }
+  .icon-btn{
+    width:38px; height:38px; border-radius:12px; display:grid; place-items:center;
+    background:#fff; border:1px solid var(--line); font-size:16px;
+  }
+
+  main{ padding:16px 16px 8px; }
+  .view{ animation:fade .22s ease; }
+  @keyframes fade{ from{ opacity:0; transform:translateY(4px);} to{ opacity:1; transform:none;} }
+
+  /* ── 카드 ── */
+  .card{
+    background:var(--card); border-radius:var(--radius); padding:16px;
+    box-shadow:var(--shadow); border:1px solid rgba(233,226,216,.7);
+    margin-bottom:14px;
+  }
+  .card.quiet{ background:#faf7f2; box-shadow:none; }
+  .label{ font-size:11.5px; font-weight:600; color:var(--sub); letter-spacing:.02em; }
+  .hint{ font-size:12px; color:var(--sub); line-height:1.55; margin-top:6px; letter-spacing:-.1px; }
+  .divider{ height:1px; background:var(--line); margin:14px 0; }
+
+  /* ── 기온 카드 ── */
+  .temp-head{ display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:6px; }
+  .temp-value{ font-size:40px; font-weight:800; letter-spacing:-2px; line-height:1.05; }
+  .temp-value .unit{ font-size:17px; font-weight:700; color:var(--sub); margin-left:2px; letter-spacing:0; }
+  .temp-side{ text-align:right; }
+  .temp-side strong{ font-size:20px; font-weight:800; letter-spacing:-.5px; }
+  .temp-side .sub{ font-size:12px; color:var(--sub); }
+
+  input[type="range"]{
+    -webkit-appearance:none; appearance:none; width:100%; height:34px;
+    background:transparent; margin:6px 0 0; display:block;
+  }
+  input[type="range"]::-webkit-slider-runnable-track{
+    height:8px; border-radius:99px;
+    background:linear-gradient(90deg,#bfd8ea 0%, #dfe6dd 34%, #f3e3c6 62%, #f0c3a8 100%);
+  }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:26px; height:26px; border-radius:50%;
+    background:#fff; border:3px solid var(--accent); margin-top:-9px;
+    box-shadow:0 2px 8px rgba(70,50,30,.22);
+  }
+  input[type="range"]::-moz-range-track{
+    height:8px; border-radius:99px;
+    background:linear-gradient(90deg,#bfd8ea 0%, #dfe6dd 34%, #f3e3c6 62%, #f0c3a8 100%);
+  }
+  input[type="range"]::-moz-range-thumb{
+    width:22px; height:22px; border-radius:50%; background:#fff; border:3px solid var(--accent);
+  }
+
+  .chip-row{ display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
+  .chip{
+    padding:6px 11px; border-radius:99px; background:#f6f1ea; border:1px solid var(--line);
+    font-size:12.5px; font-weight:600; color:var(--accent-ink); letter-spacing:-.2px;
+  }
+  .chip.active{ background:var(--accent); color:#fff; border-color:var(--accent); }
+  .chip.soft{ background:#fff; }
+
+  .segmented{ display:flex; gap:4px; background:#f2ece4; padding:4px; border-radius:14px; }
+  .segmented button{
+    flex:1; padding:8px 0; border-radius:11px; font-size:12.5px; font-weight:700;
+    color:var(--sub); letter-spacing:-.3px;
+  }
+  .segmented button.active{ background:#fff; color:var(--accent-ink); box-shadow:0 2px 8px rgba(90,70,50,.1); }
+
+  /* ── 섹션 헤더 ── */
+  .section-head{ display:flex; align-items:center; justify-content:space-between; margin:20px 4px 10px; }
+  .section-head h2{ font-size:16px; font-weight:800; letter-spacing:-.3px; }
+  .section-head h2 span{ font-size:13px; color:var(--sub); font-weight:600; margin-left:2px; }
+  .ghost-btn{ font-size:12.5px; font-weight:700; color:var(--sub); padding:6px 9px; border-radius:10px; }
+  .ghost-btn:active{ background:#eee7de; }
+
+  /* ── 코디 카드 ── */
+  .look-list{ display:flex; flex-direction:column; gap:12px; }
+  .look-card{
+    background:var(--card); border-radius:var(--radius); padding:15px 15px 13px;
+    box-shadow:var(--shadow); border:1px solid rgba(233,226,216,.7);
+  }
+  .look-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+  .mood-badge{
+    display:inline-flex; align-items:center; gap:5px; padding:5px 10px; border-radius:99px;
+    background:var(--accent-soft); color:var(--accent-ink);
+    font-size:12px; font-weight:800; letter-spacing:-.2px;
+  }
+  .look-temp{ font-size:11.5px; font-weight:600; color:var(--sub); }
+  .look-title{ font-size:15px; font-weight:800; letter-spacing:-.4px; margin-bottom:3px; }
+  .look-reason{ font-size:11.5px; color:var(--sub); letter-spacing:-.1px; margin-bottom:10px; }
+  .look-items{ display:flex; flex-direction:column; gap:2px; }
+  .look-item{
+    display:grid; grid-template-columns:46px 12px 1fr auto; align-items:center; gap:7px;
+    padding:7px 0; border-top:1px solid #f3ece3;
+  }
+  .look-item:first-child{ border-top:none; }
+  .cat-tag{
+    font-size:10.5px; font-weight:700; color:var(--sub); background:#f4efe8;
+    padding:3px 0; border-radius:7px; text-align:center; letter-spacing:-.2px;
+  }
+  .color-dot{ width:12px; height:12px; border-radius:50%; border:1px solid rgba(0,0,0,.12); }
+  .item-main{ min-width:0; }
+  .item-name{
+    display:block; font-size:13.5px; font-weight:600; letter-spacing:-.3px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .item-range{ display:block; font-size:10.5px; color:var(--sub); letter-spacing:-.1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item-range b{ color:var(--accent-ink); font-weight:700; }
+  .item-actions{ display:flex; gap:4px; }
+  .temp-btn{
+    font-size:11px; padding:5px 6px; border-radius:9px; background:#f6f1ea;
+    border:1px solid var(--line); letter-spacing:-.4px; white-space:nowrap;
+  }
+  .temp-btn:active{ background:#ece3d8; }
+  .temp-btn .t{ display:none; }
+  @media (min-width:420px){ .temp-btn .t{ display:inline; } }
+
+  .missing-box{
+    margin-top:11px; background:var(--warn-soft); border-radius:14px; padding:10px 12px;
+    border:1px solid #f2e2c6;
+  }
+  .missing-box p.missing-title{ font-size:11.5px; font-weight:800; color:#8a5a13; margin-bottom:5px; letter-spacing:-.2px; }
+  .missing-box li{ font-size:12px; color:#6f4b13; line-height:1.5; letter-spacing:-.2px; }
+  .missing-box li strong{ font-weight:800; }
+  .missing-box li span{ color:#8a6a3a; }
+
+  .look-foot{ display:flex; gap:8px; margin-top:12px; }
+  .look-foot button{
+    flex:1; padding:10px 8px; border-radius:13px; font-size:12.5px; font-weight:700;
+    letter-spacing:-.3px; background:#f6f1ea; border:1px solid var(--line); color:var(--accent-ink);
+  }
+  .look-foot button.danger{ background:var(--danger-soft); border-color:#f3d9d4; color:var(--danger); }
+  .look-foot button:active{ transform:scale(.985); }
+
+  .empty-card{ text-align:center; padding:28px 18px; color:var(--sub); }
+  .empty-card .emoji{ font-size:30px; display:block; margin-bottom:8px; }
+
+  /* ── 폼 ── */
+  .field{ margin-bottom:15px; }
+  .field > label{ display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:#4a423a; margin-bottom:7px; letter-spacing:-.2px; }
+  .req{ font-size:10px; font-weight:700; color:#fff; background:var(--accent); padding:2px 5px; border-radius:5px; }
+  .auto-tag{ font-size:9.5px; font-weight:700; color:var(--ok); background:var(--ok-soft); padding:2px 6px; border-radius:5px; }
+  .need-tag{ font-size:9.5px; font-weight:700; color:var(--warn); background:var(--warn-soft); padding:2px 6px; border-radius:5px; }
+  .err-msg{ font-size:11px; color:var(--danger); margin-top:5px; font-weight:600; }
+  .input, select.input, textarea.input{
+    width:100%; padding:11px 12px; border-radius:12px; border:1px solid var(--line-strong);
+    background:#fff; outline:none; font-size:15px; letter-spacing:-.2px;
+  }
+  .input:focus{ border-color:var(--accent); box-shadow:0 0 0 3px rgba(123,91,69,.1); }
+  .input.invalid{ border-color:#d98578; background:#fff8f7; }
+  .input-row{ display:flex; gap:8px; }
+  .input-row .input{ flex:1; min-width:0; }
+  .primary-btn{
+    padding:11px 15px; border-radius:13px; background:var(--accent); color:#fff;
+    font-size:14px; font-weight:800; letter-spacing:-.3px; white-space:nowrap;
+  }
+  .primary-btn:active{ background:var(--accent-ink); }
+  .primary-btn[disabled]{ opacity:.55; }
+  .primary-btn.wide{ width:100%; padding:14px; }
+  .secondary-btn{
+    padding:10px 13px; border-radius:12px; background:#f6f1ea; border:1px solid var(--line);
+    font-size:12.5px; font-weight:700; color:var(--accent-ink);
+  }
+
+  .swatches{ display:flex; flex-wrap:wrap; gap:7px; }
+  .swatch{
+    width:34px; height:34px; border-radius:11px; border:2px solid transparent;
+    box-shadow:inset 0 0 0 1px rgba(0,0,0,.08); position:relative;
+  }
+  .swatch.active{ border-color:var(--accent); box-shadow:0 0 0 3px rgba(123,91,69,.16); }
+  .swatch span{ position:absolute; bottom:-15px; left:50%; transform:translateX(-50%); font-size:9px; color:var(--sub); white-space:nowrap; display:none; }
+
+  .multi-chips{ display:flex; flex-wrap:wrap; gap:6px; }
+  .multi-chips button{
+    padding:8px 12px; border-radius:11px; border:1px solid var(--line);
+    background:#fff; font-size:12.5px; font-weight:600; color:#4a423a; letter-spacing:-.2px;
+  }
+  .multi-chips button.active{ background:var(--accent); border-color:var(--accent); color:#fff; }
+
+  .range-row{ display:flex; align-items:center; gap:8px; }
+  .range-row .input{ text-align:center; }
+  .range-row span{ color:var(--sub); font-size:13px; }
+
+  .tabs{ display:flex; gap:6px; background:#f2ece4; padding:4px; border-radius:14px; margin-bottom:14px; }
+  .tabs button{ flex:1; padding:9px 0; border-radius:11px; font-size:13px; font-weight:700; color:var(--sub); }
+  .tabs button.active{ background:#fff; color:var(--accent-ink); box-shadow:0 2px 8px rgba(90,70,50,.1); }
+
+  .sample-list{ display:flex; flex-direction:column; gap:7px; margin-top:8px; }
+  .sample-item{
+    display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:13px;
+    background:#fff; border:1px solid var(--line); text-align:left; width:100%;
+  }
+  .sample-item:active{ background:#faf6f0; }
+  .sample-item .s-main{ flex:1; min-width:0; }
+  .sample-item b{ display:block; font-size:12.5px; font-weight:700; letter-spacing:-.2px; }
+  .sample-item small{ display:block; font-size:10.5px; color:var(--sub); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sample-item .arrow{ color:var(--sub); font-size:14px; }
+
+  .upload-zone{
+    width:100%; padding:30px 16px; border-radius:16px; border:1.5px dashed var(--line-strong);
+    background:#fff; display:flex; flex-direction:column; align-items:center; gap:6px;
+    color:var(--sub); font-size:13px; font-weight:600;
+  }
+  .upload-zone .big{ font-size:26px; }
+
+  .auto-summary{
+    background:#f7f3ec; border-radius:14px; padding:11px 12px; margin-bottom:16px;
+    border:1px solid var(--line);
+  }
+  .auto-summary p{ font-size:12px; font-weight:700; color:#4a423a; margin-bottom:6px; letter-spacing:-.2px; }
+  .auto-chips{ display:flex; flex-wrap:wrap; gap:5px; }
+  .auto-chips li{ font-size:10.5px; font-weight:700; padding:3px 7px; border-radius:6px; letter-spacing:-.2px; }
+  .auto-chips li.ok{ background:var(--ok-soft); color:var(--ok); }
+  .auto-chips li.warn{ background:var(--warn-soft); color:#8a5a13; }
+
+  .draft-preview{ display:flex; gap:10px; align-items:center; margin-bottom:14px; }
+  .draft-preview img{ width:76px; height:76px; object-fit:cover; border-radius:12px; border:1px solid var(--line); }
+  .draft-preview p{ font-size:11.5px; color:var(--sub); line-height:1.5; letter-spacing:-.2px; }
+
+  /* ── 옷장 ── */
+  .closet-group{ margin-bottom:16px; }
+  .closet-group > h3{
+    font-size:11.5px; font-weight:800; color:var(--sub); letter-spacing:.02em;
+    margin:0 4px 7px;
+  }
+  .closet-row{
+    display:flex; align-items:center; gap:10px; padding:11px 13px; background:var(--card);
+    border-radius:15px; border:1px solid rgba(233,226,216,.8); margin-bottom:7px;
+  }
+  .closet-row .color-dot{ width:16px; height:16px; flex:none; }
+  .closet-main{ flex:1; min-width:0; }
+  .closet-name{
+    font-size:13.5px; font-weight:700; letter-spacing:-.3px; line-height:1.35;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  }
+  .closet-meta{ font-size:10.5px; color:var(--sub); letter-spacing:-.2px; margin-top:2px; }
+  .closet-actions{ display:flex; gap:3px; flex:none; }
+  .mini-btn{
+    width:29px; height:29px; border-radius:9px; background:#f6f1ea; border:1px solid var(--line);
+    display:grid; place-items:center; font-size:12px;
+  }
+  .mini-btn:active{ background:#ece3d8; }
+
+  /* ── 설정 ── */
+  .dislike-row{
+    display:flex; align-items:flex-start; gap:10px; padding:11px 0; border-top:1px solid #f3ece3;
+  }
+  .dislike-row:first-child{ border-top:none; }
+  .dislike-row .d-main{ flex:1; min-width:0; }
+  .dislike-row b{ font-size:12.5px; font-weight:800; letter-spacing:-.2px; }
+  .dislike-row p{ font-size:11px; color:var(--sub); letter-spacing:-.2px; margin-top:2px; }
+  .dislike-row .when{ font-size:10px; color:#a9a099; margin-top:3px; }
+
+  .stat-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .stat{ background:#f7f3ec; border-radius:13px; padding:11px 8px; text-align:center; }
+  .stat b{ display:block; font-size:18px; font-weight:800; letter-spacing:-.5px; }
+  .stat span{ font-size:10.5px; color:var(--sub); letter-spacing:-.2px; }
+
+  /* ── 검수 배지 · 필터 ── */
+  .filter-row{ display:flex; gap:6px; margin:0 2px 12px; }
+  .closet-row.needs-review{ border-color:#eeddbd; background:#fffcf5; }
+  .need-badge{
+    display:inline-block; margin-left:4px; font-size:9.5px; font-weight:800; letter-spacing:-.2px;
+    color:#8a5a13; background:var(--warn-soft); padding:2px 6px; border-radius:6px; vertical-align:1px;
+  }
+  .mini-btn.danger{ color:var(--danger); background:var(--danger-soft); border-color:#f3d9d4; }
+  .toast-action{
+    margin-left:6px; padding:3px 9px; border-radius:8px; background:rgba(255,255,255,.18);
+    color:#fff; font-size:12px; font-weight:800; text-decoration:underline;
+  }
+  .notice-card{
+    background:#fff8ec; border:1px solid #f1e2c6; border-radius:18px; padding:13px 15px;
+    margin-bottom:14px;
+  }
+  .notice-card p{ font-size:12px; color:#6f4b13; line-height:1.55; letter-spacing:-.2px; }
+  .notice-card b{ font-weight:800; }
+  .notice-card .notice-foot{ display:flex; align-items:center; gap:8px; margin-top:9px; }
+  .notice-card button{
+    padding:7px 12px; border-radius:10px; background:var(--accent); color:#fff;
+    font-size:11.5px; font-weight:800; letter-spacing:-.2px;
+  }
+  .estimate-tag{
+    display:inline-block; font-size:9.5px; font-weight:700; color:var(--sub);
+    background:#f1ece4; padding:2px 5px; border-radius:5px; margin-left:4px; vertical-align:1px;
+  }
+  .season-warn{
+    font-size:11px; color:#8a5a13; background:#fdf4e6; border-radius:9px;
+    padding:6px 9px; margin:0 0 8px; letter-spacing:-.2px; line-height:1.45;
+  }
+  .source-line{ font-size:10.5px; color:var(--sub); letter-spacing:-.2px; margin-top:3px; }
+
+  /* ── 탭바 ── */
+  .tabbar{
+    position:fixed; left:0; right:0; bottom:0; z-index:30;
+    display:flex; justify-content:center;
+    padding:6px 12px calc(6px + var(--safe-bottom));
+    background:rgba(255,253,250,.94);
+    backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+    border-top:1px solid var(--line);
+  }
+  .tabbar-inner{ display:flex; width:100%; max-width:520px; gap:2px; }
+  .tab-btn{
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:2px;
+    padding:6px 0 4px; border-radius:13px; font-size:10.5px; font-weight:700;
+    color:#9c948b; letter-spacing:-.2px;
+  }
+  .tab-btn .ic{ font-size:19px; line-height:1.15; }
+  .tab-btn.active{ color:var(--accent); background:var(--accent-soft); }
+
+  /* ── 시트(검수 모달) ── */
+  .sheet-backdrop{
+    position:fixed; inset:0; z-index:60; background:rgba(38,28,20,.42);
+    display:flex; align-items:flex-end; justify-content:center;
+    opacity:0; transition:opacity .2s ease;
+  }
+  .sheet-backdrop[hidden]{ display:none !important; }
+  .sheet-backdrop.open{ opacity:1; }
+  .sheet{
+    width:100%; max-width:520px; max-height:92vh; background:var(--bg);
+    border-radius:24px 24px 0 0; display:flex; flex-direction:column;
+    transform:translateY(18px); transition:transform .24s ease;
+    padding-bottom:var(--safe-bottom);
+  }
+  .sheet-backdrop.open .sheet{ transform:none; }
+  .sheet-grabber{ width:38px; height:4px; border-radius:99px; background:#d9cfc2; margin:8px auto 0; flex:none; }
+  .sheet-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 18px 12px; flex:none;
+  }
+  .sheet-head h2{ font-size:16px; font-weight:800; letter-spacing:-.3px; }
+  .sheet-body{ overflow-y:auto; -webkit-overflow-scrolling:touch; padding:0 18px 8px; }
+  .sheet-foot{
+    padding:12px 18px 14px; border-top:1px solid var(--line); background:var(--bg); flex:none;
+  }
+  .sheet-foot .primary-btn{ width:100%; padding:15px; font-size:15px; }
+  .sheet-foot .note{ font-size:11px; color:var(--sub); text-align:center; margin-bottom:9px; letter-spacing:-.2px; }
+
+  /* ── 토스트 ── */
+  #toast{
+    position:fixed; left:50%; bottom:calc(96px + var(--safe-bottom)); transform:translate(-50%,10px);
+    background:rgba(34,31,29,.94); color:#fff; padding:11px 16px; border-radius:14px;
+    font-size:12.5px; font-weight:600; letter-spacing:-.2px; max-width:88vw; text-align:center;
+    opacity:0; pointer-events:none; transition:opacity .22s, transform .22s; z-index:80; line-height:1.45;
+  }
+  #toast.show{ opacity:1; transform:translate(-50%,0); pointer-events:auto; }
+
+  .footnote{ font-size:10.5px; color:#a49b92; text-align:center; margin:18px 8px 8px; line-height:1.6; letter-spacing:-.2px; }
+  .badge-line{ display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+  .badge{ font-size:10.5px; font-weight:700; padding:4px 8px; border-radius:7px; background:#f2ece4; color:var(--sub); letter-spacing:-.2px; }
+  .badge.ok{ background:var(--ok-soft); color:var(--ok); }
+  .badge.warn{ background:var(--warn-soft); color:#8a5a13; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-mark">👗</div>
+        <div>
+          <h1>내 옷장</h1>
+          <p id="todayLabel">오늘의 코디 추천</p>
+        </div>
+      </div>
+      <button class="icon-btn" data-tab="settings" aria-label="설정">⚙️</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ═══ 추천 ═══ -->
+    <section class="view" id="view-recommend">
+      <div class="card temp-card">
+        <div class="temp-head">
+          <div>
+            <p class="label">지금 기온</p>
+            <div class="temp-value"><span id="baseTempLabel">2</span><span class="unit">°C</span></div>
+          </div>
+          <div class="temp-side">
+            <p class="label">내 체감 기준</p>
+            <div><strong id="effectiveTempLabel">2</strong><span class="sub">°C</span></div>
+          </div>
+        </div>
+        <input type="range" id="tempSlider" min="-15" max="35" step="1" value="2" aria-label="현재 기온">
+        <div class="chip-row" id="tempQuickRow"></div>
+        <div class="divider"></div>
+        <p class="label" style="margin-bottom:7px">내 체감 민감도</p>
+        <div class="segmented" id="sensitivityRow"></div>
+        <p class="hint" id="sensitivityHint"></p>
+      </div>
+
+      <div id="verifyNotice"></div>
+
+      <div class="section-head">
+        <h2>오늘의 코디 <span id="lookCount"></span></h2>
+        <button class="ghost-btn" id="refreshBtn">↻ 새로 추천</button>
+      </div>
+      <div class="look-list" id="lookList"></div>
+      <p class="footnote">
+        체감 온도·소재 궁합·무드가 겹치지 않게 5가지를 골라 드려요.<br>
+        마음에 안 드는 코디는 👎로 알려주시면 다시 추천하지 않아요.
+      </p>
+    </section>
+
+    <!-- ═══ 등록 ═══ -->
+    <section class="view hidden" id="view-add">
+      <div class="card">
+        <div class="tabs" id="addTabs">
+          <button class="active" data-mode="link">🔗 링크 입력</button>
+          <button data-mode="photo">📷 사진 업로드</button>
+        </div>
+
+        <div id="paneLink">
+          <label class="label" for="linkInput">상품 링크</label>
+          <div class="input-row" style="margin-top:7px">
+            <input class="input" id="linkInput" type="url" inputmode="url" autocomplete="off"
+                   placeholder="https://www.musinsa.com/...">
+            <button class="primary-btn" id="linkLoadBtn">불러오기</button>
+          </div>
+          <p class="hint">링크에서 제목·카테고리·색상·소재를 읽어 옵니다. 확인되지 않은 값은 비워 두고 검수 화면에서 채우게 해요.</p>
+          <p class="label" style="margin:16px 0 2px">샘플 링크로 테스트 <span style="font-weight:500;color:var(--sub)">(실제 구매 상품 아님 · 등록하면 옷장에 추가됩니다)</span></p>
+          <div class="sample-list" id="sampleList"></div>
+        </div>
+
+        <div id="panePhoto" class="hidden">
+          <input type="file" id="photoInput" accept="image/*" hidden>
+          <button class="upload-zone" id="photoPickBtn">
+            <span class="big">📷</span>
+            <span>사진 선택하기</span>
+            <span style="font-size:11px;font-weight:500">옷이 잘 보이는 사진이면 좋아요</span>
+          </button>
+          <p class="hint">프로토타입은 사진의 <b>색상만</b> 실제 픽셀에서 분석하고, 소재·카테고리는 검수 단계에서 직접 골라 주세요. (2단계에서 AI 비전이 자동 판별합니다.)</p>
+        </div>
+      </div>
+
+      <div class="card quiet">
+        <h3 style="font-size:13px;font-weight:800;margin-bottom:6px;letter-spacing:-.3px">왜 검수를 거치나요?</h3>
+        <p class="hint" style="margin:0">링크·사진에서 읽은 값은 <b>추정</b>이라서, 확인 없이 저장하면 코디 추천이 어긋납니다. 카테고리·색상·소재·계절·적정 온도를 확인하고 <b>[검수 확인 후 등록]</b>을 눌러야만 내 옷장에 들어가요.</p>
+      </div>
+    </section>
+
+    <!-- ═══ 옷장 ═══ -->
+    <section class="view hidden" id="view-closet">
+      <div class="section-head">
+        <h2>내 옷장 <span id="closetCount"></span></h2>
+        <button class="ghost-btn" id="closetResetBtn">구매 목록 35벌 불러오기</button>
+      </div>
+      <div id="closetList"></div>
+      <button class="primary-btn wide" id="closetAddBtn" style="margin:6px 0 14px">+ 옷 등록하기</button>
+      <p class="footnote">🥶 / 🥵 버튼은 지금 기온 기준으로 그 옷의 적정 온도를 바로 보정해요.</p>
+    </section>
+
+    <!-- ═══ 설정 ═══ -->
+    <section class="view hidden" id="view-settings">
+      <div class="section-head"><h2>제외한 코디 <span id="dislikeCount"></span></h2>
+        <button class="ghost-btn" id="dislikeClearBtn">전체 해제</button>
+      </div>
+      <div class="card" id="dislikeCard" style="padding:14px 16px"></div>
+
+      <div class="section-head"><h2>내 데이터</h2></div>
+      <div class="card">
+        <div class="stat-grid" id="statGrid"></div>
+        <div class="divider"></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <button class="secondary-btn" id="exportBtn">데이터 내보내기</button>
+          <button class="secondary-btn" id="resetWardrobeBtn">구매 목록 35벌 불러오기</button>
+          <button class="secondary-btn" id="resetAllBtn" style="color:var(--danger)">전체 초기화</button>
+        </div>
+        <p class="hint" id="storageHint"></p>
+      </div>
+
+      <div class="card quiet">
+        <h3 style="font-size:13px;font-weight:800;margin-bottom:6px;letter-spacing:-.3px">앱 정보</h3>
+        <p class="hint">
+          내 옷장 코디 추천 · 1단계 프로토타입 <b>v<span id="appVersion"></span></b><br>
+          기록은 이 기기 브라우저에만 저장됩니다(서버 전송 없음). 2단계에서 AI 비전·링크 파싱 서버와 계정 동기화가 붙습니다.
+        </p>
+        <p class="hint" id="wardrobeSource" style="margin-top:8px"></p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<nav class="tabbar">
+  <div class="tabbar-inner">
+    <button class="tab-btn active" data-tab="recommend"><span class="ic">✨</span>추천</button>
+    <button class="tab-btn" data-tab="add"><span class="ic">➕</span>등록</button>
+    <button class="tab-btn" data-tab="closet"><span class="ic">🧺</span>옷장</button>
+    <button class="tab-btn" data-tab="settings"><span class="ic">⚙️</span>설정</button>
+  </div>
+</nav>
+
+<div class="sheet-backdrop" id="sheetBackdrop" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-grabber"></div>
+    <div class="sheet-head">
+      <h2 id="sheetTitle">옷 검수</h2>
+      <button class="ghost-btn" id="sheetClose" aria-label="닫기">✕</button>
+    </div>
+    <div class="sheet-body" id="sheetBody"></div>
+    <div class="sheet-foot" id="sheetFoot"></div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+'use strict';
+
+/* ══════════════════════════════════════════════════════════════
+   0. 상수 · 스키마
+   ══════════════════════════════════════════════════════════════ */
+var APP_VERSION = '1.1.0';
+var SCHEMA_VERSION = 2;
+var STORAGE_KEY = 'wardrobeApp.v1';
+
+var CATEGORIES = [
+  { key:'outer',  label:'아우터' },
+  { key:'top',    label:'상의' },
+  { key:'bottom', label:'하의' },
+  { key:'dress',  label:'원피스' },
+  { key:'shoes',  label:'신발' },
+  { key:'acc',    label:'소품' }
+];
+var CATEGORY_KEYS = CATEGORIES.map(function(c){ return c.key; });
+var SEASONS = ['봄','여름','가을','겨울','사계절'];
+
+var MATERIALS = [
+  { key:'down',       label:'구스다운',   warmth:1.00 },
+  { key:'cashmere',   label:'캐시미어',   warmth:0.92 },
+  { key:'wool',       label:'울',         warmth:0.88 },
+  { key:'fleece',     label:'플리스',     warmth:0.80 },
+  { key:'knit',       label:'니트',       warmth:0.76 },
+  { key:'leather',    label:'가죽',       warmth:0.62 },
+  { key:'denim',      label:'데님',       warmth:0.62 },
+  { key:'poly',       label:'폴리에스터', warmth:0.50 },
+  { key:'rayon',      label:'레이온',     warmth:0.44 },
+  { key:'nylon',      label:'나일론',     warmth:0.42 },
+  { key:'cotton',     label:'코튼',       warmth:0.42 },
+  { key:'canvas',     label:'캔버스',     warmth:0.34 },
+  { key:'metal',      label:'메탈',       warmth:0.30 },
+  { key:'linen',      label:'린넨',       warmth:0.18 },
+  { key:'seersucker', label:'시어서커',   warmth:0.15 },
+  { key:'etc',        label:'기타',       warmth:0.48 }
+];
+var MATERIAL_KEYS = MATERIALS.map(function(m){ return m.key; });
+
+var COLOR_TABLE = [
+  { name:'블랙',   hex:'#1c1c1e' },
+  { name:'차콜',   hex:'#3b3b3f' },
+  { name:'그레이', hex:'#9a9a9e' },
+  { name:'실버',   hex:'#c8c8cc' },
+  { name:'화이트', hex:'#f8f7f4' },
+  { name:'아이보리', hex:'#f1ebdd' },
+  { name:'크림',   hex:'#e8dcc8' },
+  { name:'베이지', hex:'#d8c3a5' },
+  { name:'카멜',   hex:'#b08968' },
+  { name:'브라운', hex:'#7a5a44' },
+  { name:'네이비', hex:'#28324a' },
+  { name:'인디고', hex:'#3f5a7d' },
+  { name:'블루',   hex:'#4a7fb5' },
+  { name:'스카이 블루', hex:'#a9c8e2' },
+  { name:'연청', hex:'#8fb0d3' },
+  { name:'카키',   hex:'#8a8a5c' },
+  { name:'올리브', hex:'#6b6f46' },
+  { name:'그린',   hex:'#4f7a5b' },
+  { name:'레드',   hex:'#b23a34' },
+  { name:'버건디', hex:'#6d2a34' },
+  { name:'핑크',   hex:'#dfa3ad' },
+  { name:'라벤더', hex:'#b4a6d0' },
+  { name:'옐로우', hex:'#e3c163' },
+  { name:'오렌지', hex:'#d98452' },
+  { name:'민트',   hex:'#a8d5ba' },
+  { name:'골드',   hex:'#c2a35a' }
+];
+
+var MOODS = [
+  { key:'minimal_office', label:'미니멀 오피스', emoji:'🖤', formality:4, desc:'단정한 실루엣 · 무채색 중심' },
+  { key:'feminine_layer', label:'페미닌 레이어드', emoji:'🌸', formality:3, desc:'부드러운 소재 · 흐르는 실루엣' },
+  { key:'casual_daily',   label:'캐주얼 데일리', emoji:'👟', formality:2, desc:'데님 · 스니커즈 중심' },
+  { key:'modern_chic',    label:'모던 시크',     emoji:'🕶️', formality:4, desc:'대비되는 컬러 · 각진 실루엣' },
+  { key:'warm_cozy',      label:'웜 코지',       emoji:'🧣', formality:2, desc:'니트 · 머플러로 채운 포근함' },
+  { key:'sporty_active',  label:'스포티 액티브', emoji:'🏃', formality:1, desc:'활동성 위주 · 편안한 무드' }
+];
+var MOOD_BY_KEY = {};
+MOODS.forEach(function(m){ MOOD_BY_KEY[m.key] = m; });
+
+/* 카테고리·소재별 적정 온도 추정표 (검수 화면 '추정' 버튼) */
+var TEMP_HINTS = {
+  outer: { down:[-18,0], cashmere:[-12,8], wool:[-12,8], knit:[-10,6], fleece:[-8,6], leather:[-4,12], poly:[-2,14], rayon:[0,14], nylon:[0,14], cotton:[4,18], canvas:[6,20], linen:[16,28], seersucker:[18,30], denim:[0,16], metal:[0,20], etc:[0,16] },
+  top:   { down:[-5,10], cashmere:[-6,12], wool:[-6,12], knit:[-4,14], fleece:[-2,14], leather:[2,20], poly:[4,24], rayon:[6,26], nylon:[6,24], cotton:[10,28], canvas:[8,24], linen:[19,32], seersucker:[20,32], denim:[4,24], metal:[0,30], etc:[6,24] },
+  bottom:{ down:[-15,5], cashmere:[-8,18], wool:[-4,22], knit:[-2,20], fleece:[-6,14], leather:[-2,24], poly:[2,26], rayon:[4,26], nylon:[0,26], cotton:[6,28], canvas:[4,26], linen:[18,32], seersucker:[20,32], denim:[-2,27], metal:[0,30], etc:[2,24] },
+  dress: { cashmere:[-6,14], wool:[-6,16], knit:[0,20], fleece:[-4,16], leather:[0,22], poly:[6,26], rayon:[6,26], nylon:[6,26], cotton:[10,30], linen:[19,32], seersucker:[20,32], denim:[4,24], etc:[4,26] },
+  shoes: { leather:[-8,26], canvas:[2,31], denim:[0,28], poly:[0,28], rayon:[0,28], nylon:[0,28], wool:[-10,18], cashmere:[-10,18], down:[-15,5], knit:[-5,20], linen:[15,30], fleece:[-8,12], metal:[0,30], seersucker:[15,30], etc:[0,26] },
+  acc:   { cashmere:[-16,6], wool:[-14,8], knit:[-10,10], leather:[-10,32], metal:[-20,40], cotton:[0,32], poly:[-10,32], rayon:[-10,32], nylon:[-10,30], canvas:[0,32], linen:[12,32], down:[-20,2], fleece:[-14,8], denim:[-5,30], seersucker:[15,32], etc:[-10,30] }
+};
+
+/* ══════════════════════════════════════════════════════════════
+   1. 유틸
+   ══════════════════════════════════════════════════════════════ */
+function $(sel, root){ return (root || document).querySelector(sel); }
+function $$(sel, root){ return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+function clamp(v, a, b){ return Math.min(b, Math.max(a, v)); }
+function raf(cb){ return (window.requestAnimationFrame ? window.requestAnimationFrame.bind(window) : function(f){ setTimeout(f, 0); })(cb); }
+function delay(ms){ return new Promise(function(res){ setTimeout(res, ms); }); }
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+  });
+}
+function uid(prefix){
+  return (prefix || 'it') + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+function oneLine(arr){ return arr.filter(Boolean).join(' · '); }
+
+/* ══════════════════════════════════════════════════════════════
+   2. 저장소 어댑터 (localStorage 불가 시 메모리 대체)
+   ══════════════════════════════════════════════════════════════ */
+var memoryStore = {};
+var Storage = {
+  available: false,
+  check: function(){
+    try {
+      var k = '__wt__';
+      window.localStorage.setItem(k, '1');
+      window.localStorage.removeItem(k);
+      this.available = true;
+    } catch (e) { this.available = false; }
+    return this.available;
+  },
+  get: function(k){
+    try { if (this.available) return window.localStorage.getItem(k); } catch (e) {}
+    return Object.prototype.hasOwnProperty.call(memoryStore, k) ? memoryStore[k] : null;
+  },
+  set: function(k, v){
+    try { if (this.available) { window.localStorage.setItem(k, v); return true; } } catch (e) {}
+    memoryStore[k] = v;
+    return false;
+  },
+  del: function(k){
+    try { if (this.available) window.localStorage.removeItem(k); } catch (e) {}
+    delete memoryStore[k];
+  }
+};
+Storage.check();
+
+/* ══════════════════════════════════════════════════════════════
+   3. 내 옷장 데이터
+   - 지그재그 19벌 + 무신사 16벌 = 35벌 (구매확정만, 취소·반품 제외)
+   - 출처: data/purchased-wardrobe.json (2026-11-20 수집)
+   - 소재·계절이 비어 있는 상품은 추측해서 채우지 않는다.
+     빈칸 그대로 두고 '검수 필요' 배지로 표시한다.
+   ══════════════════════════════════════════════════════════════ */
+var PURCHASED_WARDROBE = {
+  generatedAt: "2026-11-20T09:30:00+09:00",
+  owner: "",
+  items: [
+    {"id": "zz-168734423-1", "brand": "트위", "name": "[온라인단독] 노엔 레이어드 탑 뷔스티에 셔츠 블라우스", "option": "블랙(BK)", "material": "", "season": "", "link": "https://zigzag.kr/catalog/products/168734423", "src": "지그재그"},
+    {"id": "zz-141913686-2", "brand": "리얼코코", "name": "[기모추가/20만장돌파/3단기장/자체제작] 포스트 와이드 팬츠 (숏/기본/롱)", "option": "연청(여름)-롱", "material": "면 78%, 폴리에스터 22% (연청/중청/빈티지 기준 표기)", "season": "여름", "link": "https://zigzag.kr/catalog/products/141913686", "src": "지그재그"},
+    {"id": "zz-170224782-7", "brand": "어텀", "name": "[made]빈티지워싱쇼츠", "option": "navy", "material": "", "season": "", "link": "https://zigzag.kr/catalog/products/170224782", "src": "지그재그"},
+    {"id": "zz-161719987-8", "brand": "모어댄슈가", "name": "[단독] 로라 여름 랩 블라우스 (3color)", "option": "민트", "material": "폴리 (혼용률 % 미표기)", "season": "여름", "link": "https://zigzag.kr/catalog/products/161719987", "src": "지그재그"},
+    {"id": "zz-161720026-9", "brand": "모어댄슈가", "name": "[문의폭주!] 카네 와이드 조거 팬츠 (3color)", "option": "화이트", "material": "폴리 (혼용률 % 미표기)", "season": "", "link": "https://zigzag.kr/catalog/products/161720026", "src": "지그재그"},
+    {"id": "zz-164758329-10", "brand": "모어댄슈가", "name": "[캡소매/허리잘록핏!] 두잇 반팔 블라우스 (2color)", "option": "아이보리", "material": "면·레이온 혼방 (혼용률 % 미표기)", "season": "", "link": "https://zigzag.kr/catalog/products/164758329", "src": "지그재그"},
+    {"id": "zz-169809871-12", "brand": "루프온", "name": "[루프온xOOTJ단독] 썸머 버터플 루즈 플레어 팬츠 (2color)", "option": "블랙", "material": "", "season": "여름", "link": "https://zigzag.kr/catalog/products/169809871", "src": "지그재그"},
+    {"id": "zz-169309872-13", "brand": "미리내로", "name": "[썸머] 도그미 프린팅 박스 반팔티", "option": "아이보리", "material": "코튼 100%", "season": "여름", "link": "https://zigzag.kr/catalog/products/169309872", "src": "지그재그"},
+    {"id": "zz-169384173-14", "brand": "미리내로", "name": "[썸머] 아워스 나일론 밴딩 와이드팬츠", "option": "네이비", "material": "나일론 (혼용률 % 미표기)", "season": "여름", "link": "https://zigzag.kr/catalog/products/169384173", "src": "지그재그"},
+    {"id": "zz-165980484-16", "brand": "시프트에잇", "name": "[MADE/3PCS세트!/하객룩] 잔스 빈티지 체크 조끼 블라우스 스커트 세트", "option": "차콜", "material": "면·린넨·나일론 (혼용률 % 미표기)", "season": "", "link": "https://zigzag.kr/catalog/products/165980484", "src": "지그재그"},
+    {"id": "zz-164875313-17", "brand": "모렌트", "name": "[mlt] 레온 오버핏 스웨이드 하프 코트", "option": "브라운", "material": "폴리우레탄 50%, 폴리에스터 40%, 비스코스 10%", "season": "겨울", "link": "https://zigzag.kr/catalog/products/164875313", "src": "지그재그"},
+    {"id": "zz-168847610-18", "brand": "그레이레이즈", "name": "[레이어드조합/반소매] 탄탄핏언발레이어드반팔티 (7color)", "option": "차콜", "material": "코튼 57%, 모달 37%, 스판 6%", "season": "", "link": "https://zigzag.kr/catalog/products/168847610", "src": "지그재그"},
+    {"id": "zz-168847610-19", "brand": "그레이레이즈", "name": "[레이어드조합/반소매] 탄탄핏언발레이어드반팔티 (7color)", "option": "브라운", "material": "코튼 57%, 모달 37%, 스판 6%", "season": "", "link": "https://zigzag.kr/catalog/products/168847610", "src": "지그재그"},
+    {"id": "zz-168847612-20", "brand": "그레이레이즈", "name": "[레이어드조합/롱슬리브] 여리슬림핏레이어드긴팔티 (4color)", "option": "그레이", "material": "레이온 95%, 스판 5%", "season": "", "link": "https://zigzag.kr/catalog/products/168847612", "src": "지그재그"},
+    {"id": "zz-168847612-21", "brand": "그레이레이즈", "name": "[레이어드조합/롱슬리브] 여리슬림핏레이어드긴팔티 (4color)", "option": "올리브", "material": "레이온 95%, 스판 5%", "season": "", "link": "https://zigzag.kr/catalog/products/168847612", "src": "지그재그"},
+    {"id": "zz-157847110-27", "brand": "이센치", "name": "[L-size추가!] 슈렌 나시 레이어드 미니 원피스 (1color) 레이스 시스루 숏 프릴 A라인 쉬폰", "option": "아이보리", "material": "폴리에스테르 (혼용률 % 미표기)", "season": "가을·여름", "link": "https://zigzag.kr/catalog/products/157847110", "src": "지그재그"},
+    {"id": "zz-168354413-28", "brand": "미리내로", "name": "(하객룩) 에스피 트위드 콩단추 자켓", "option": "그레이", "material": "폴리 혼방 (혼용률 % 미표기)", "season": "", "link": "https://zigzag.kr/catalog/products/168354413", "src": "지그재그"},
+    {"id": "zz-168857924-29", "brand": "핫핑", "name": "[MADE] 레던스 슬림베이직핏 일체형 배색 레이어드 셔링 긴팔티셔츠(44~99)", "option": "네이비(navy)", "material": "", "season": "", "link": "https://zigzag.kr/catalog/products/168857924", "src": "지그재그"},
+    {"id": "zz-149323604-30", "brand": "컴포트랩", "name": "[10만장판매/직진] 듀얼 쿨 튜브탑 (얇은끈)", "option": "블랙 / 베이직", "material": "", "season": "", "link": "https://zigzag.kr/catalog/products/149323604", "src": "지그재그"},
+    {"id": "ms-4644651-1", "brand": "무신사 스탠다드 우먼", "name": "우먼즈 시어 라운드 넥 가디건 [화이트]", "option": "", "material": "레이온 78%, 폴리에스터 22%", "season": "2025 SS", "link": "https://www.musinsa.com/products/4644651", "src": "무신사"},
+    {"id": "ms-6644699-2", "brand": "나이스고스트클럽", "name": "CHECK 3STAR BASIC RINGER TEE_CHARCOAL(NG2GMUT537A)", "option": "차콜", "material": "", "season": "", "link": "https://www.musinsa.com/products/6644699", "src": "무신사"},
+    {"id": "ms-6603689-3", "brand": "칙스", "name": "레터링 체크 패턴 홀스 슬림 반팔 티셔츠 블랙", "option": "블랙", "material": "", "season": "", "link": "https://www.musinsa.com/products/6603689", "src": "무신사"},
+    {"id": "ms-6405693-4", "brand": "칙스", "name": "CKS 스탠다드 슬림핏 반팔 셔츠 네이비", "option": "네이비", "material": "", "season": "", "link": "https://www.musinsa.com/products/6405693", "src": "무신사"},
+    {"id": "ms-6146506-6", "brand": "비터셀즈", "name": "로즈 페탈 티-올리브", "option": "", "material": "", "season": "", "link": "https://www.musinsa.com/products/6146506", "src": "무신사"},
+    {"id": "ms-5168590-8", "brand": "렌세", "name": "Star Patch Slim Fit Ringer Tee Red", "option": "", "material": "", "season": "", "link": "https://www.musinsa.com/products/5168590", "src": "무신사"},
+    {"id": "ms-4326509-9", "brand": "무신사 스탠다드 우먼", "name": "우먼즈 레이어드 미니 스코츠 [블랙]", "option": "", "material": "", "season": "", "link": "https://www.musinsa.com/products/4326509", "src": "무신사"},
+    {"id": "ms-4687212-10", "brand": "무신사 스탠다드 우먼", "name": "우먼즈 레이어드 미니 스코츠 [차콜 그레이]", "option": "", "material": "", "season": "", "link": "https://www.musinsa.com/products/4687212", "src": "무신사"},
+    {"id": "ms-4055683-11", "brand": "아메스 월드와이드", "name": "ROUND HEM CROP TEE CHARCOAL", "option": "차콜", "material": "", "season": "", "link": "https://www.musinsa.com/products/4055683", "src": "무신사"},
+    {"id": "ms-3994695-12", "brand": "아메스 월드와이드", "name": "BASIC LOGO TEE IVORY", "option": "아이보리", "material": "", "season": "", "link": "https://www.musinsa.com/products/3994695", "src": "무신사"},
+    {"id": "ms-6506825-13", "brand": "코이리스", "name": "로라 스몰 로고 원 숄더 반팔 티 (13컬러)", "option": "Sora", "material": "", "season": "", "link": "https://www.musinsa.com/products/6506825", "src": "무신사"},
+    {"id": "ms-6317830-14", "brand": "타입서비스", "name": "Glittered Spiral Ruched Top [Red]", "option": "", "material": "", "season": "", "link": "https://www.musinsa.com/products/6317830", "src": "무신사"},
+    {"id": "ms-6013647-15", "brand": "쏘비", "name": "post 세미크롭 반팔티 [네이비]", "option": "", "material": "", "season": "", "link": "https://www.musinsa.com/products/6013647", "src": "무신사"},
+    {"id": "ms-3155032-17", "brand": "어반드레스", "name": "Sopy Collar Short-Sleeve BLACK", "option": "", "material": "", "season": "", "link": "https://www.musinsa.com/products/3155032", "src": "무신사"},
+    {"id": "ms-5942667-18", "brand": "엘엠알", "name": "모티프 자수 스트라이프 레이어드 티셔츠(반팔/긴팔) BLACK", "option": "BLACK(반팔)", "material": "", "season": "", "link": "https://www.musinsa.com/products/5942667", "src": "무신사"},
+    {"id": "ms-6507762-19", "brand": "세컨드솔트", "name": "스트랩 레이어드 골지 홀터넥 티셔츠 (유자솔트)", "option": "", "material": "", "season": "", "link": "https://www.musinsa.com/products/6507762", "src": "무신사"},
+  ]
+};;
+
+/* 상품명 앞의 마케팅 태그([단독], [MADE], [캡소매/…])를 떼어 읽기 좋게 */
+function cleanProductName(raw){
+  return String(raw || '')
+    .replace(/^\s*(\[[^\]]*\]\s*)+/, '')
+    .replace(/\(\s*\d+\s*(?:color|컬러)\s*\)/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/* ── 상품명 → 카테고리 (상품명에 적힌 명칭 기준) ── */
+var PRODUCT_CATEGORY_RULES = [
+  { cat:'dress',  words:['원피스','드레스','onepiece','dress'] },
+  { cat:'outer',  words:['코트','자켓','재킷','점퍼','패딩','파카','트렌치','블레이저','가디건','집업','아노락','바람막이','코트','coat','jacket','blazer','cardigan'] },
+  { cat:'shoes',  words:['스니커즈','운동화','로퍼','부츠','구두','샌들','슬리퍼','힐','shoes','sneakers','loafers','boots'] },
+  { cat:'bottom', words:['팬츠','바지','슬랙스','데님','청바지','스커트','스코츠','치마','쇼츠','반바지','레깅스','pants','trousers','jeans','skirt','shorts'] },
+  { cat:'acc',    words:['머플러','목도리','스카프','가방','백','목걸이','귀걸이','반지','벨트','모자','장갑','양말','scarf','muffler','bag','necklace','belt','hat'] },
+  { cat:'top',    words:['셔츠','니트','스웨터','티셔츠','티셔','반팔','긴팔','맨투맨','후드','블라우스','탑','나시','튜브탑','홀터넥','조끼','티','슬리브','sleeve','shirt','knit','sweater','tee','hoodie','blouse','top'] }
+];
+
+function classifyCategory(text){
+  var t = String(text || '').toLowerCase();
+  for (var i = 0; i < PRODUCT_CATEGORY_RULES.length; i++) {
+    var rule = PRODUCT_CATEGORY_RULES[i];
+    for (var j = 0; j < rule.words.length; j++) {
+      if (t.indexOf(rule.words[j]) >= 0) return rule.cat;
+    }
+  }
+  return '';
+}
+
+/* ── 상품 정보 고시 소재 표기 → 대표 소재 1개 ──
+   퍼센트가 적혀 있으면 가장 큰 비중의 섬유를, 단일 섬유면 그 섬유를 쓴다.
+   퍼센트 없이 여러 섬유만 나열돼 있으면 대표를 정할 수 없으므로 빈칸으로 둔다. */
+var FIBER_RULES = [
+  { key:'cashmere', words:['캐시미어','cashmere'] },
+  { key:'wool',     words:['메리노','wool','울'] },
+  { key:'down',     words:['구스다운','덕다운','다운'] },
+  { key:'linen',    words:['린넨','linen'] },
+  { key:'denim',    words:['데님','denim'] },
+  { key:'leather',  words:['가죽','레더','leather'] },
+  { key:'rayon',    words:['레이온','비스코스','모달','rayon','viscose','modal'] },
+  { key:'nylon',    words:['나일론','nylon'] },
+  { key:'poly',     words:['폴리에스터','폴리에스테르','폴리우레탄','폴리','polyester','poly'] },
+  { key:'cotton',   words:['코튼','면','cotton'] },
+  { key:'knit',     words:['니트','knit'] }
+];
+
+function parseMaterialText(text){
+  var raw = String(text || '').trim();
+  if (!raw) return { key:'', raw:'', found:[] };
+  var lower = raw.toLowerCase();
+  var found = [];   /* { key, pct } */
+  FIBER_RULES.forEach(function(rule){
+    var bestPct = 0, appeared = false;
+    rule.words.forEach(function(w){
+      var idx = lower.indexOf(w);
+      if (idx < 0) return;
+      appeared = true;
+      var after = lower.slice(idx + w.length, idx + w.length + 8).match(/(\d{1,3})\s*%/);
+      if (after) bestPct = Math.max(bestPct, Number(after[1]));
+    });
+    if (appeared) found.push({ key: rule.key, pct: bestPct });
+  });
+  if (!found.length) return { key:'', raw: raw, found:[] };
+  var withPct = found.filter(function(f){ return f.pct > 0; });
+  if (withPct.length) {
+    withPct.sort(function(a, b){ return b.pct - a.pct; });
+    return { key: withPct[0].key, raw: raw, found: found };
+  }
+  if (found.length === 1) return { key: found[0].key, raw: raw, found: found };
+  return { key:'', raw: raw, found: found };   /* 혼방인데 비중 표기 없음 → 빈칸 */
+}
+
+/* ── 판매자 계절 표기 → 계절 배열 ── */
+function parseSeasonText(text){
+  var t = String(text || '');
+  var out = [];
+  if (/사계절/.test(t)) out.push('사계절');
+  if (/봄/.test(t)) out.push('봄');
+  if (/여름/.test(t)) out.push('여름');
+  if (/가을/.test(t)) out.push('가을');
+  if (/겨울/.test(t)) out.push('겨울');
+  if (/\bSS\b|\bss\b/.test(t)) { out.push('봄','여름'); }
+  if (/\bFW\b|\bfw\b/.test(t)) { out.push('가을','겨울'); }
+  return out.filter(function(v, i, a){ return a.indexOf(v) === i; });
+}
+
+/* ── 옵션·상품명에서 색상 읽기 (적힌 단어만) ── */
+function parseColorFromText(text){
+  var t = String(text || '').toLowerCase();
+  for (var i = 0; i < COLOR_WORDS.length; i++) {
+    var c = COLOR_WORDS[i];
+    for (var j = 0; j < c.words.length; j++) {
+      var w = c.words[j];
+      if (/^[a-z ]+$/i.test(w)) {
+        if (new RegExp('(^|[^a-z])' + w.trim() + '([^a-z]|$)', 'i').test(t)) return { name:c.name, hex:c.hex };
+      } else if (t.indexOf(w) >= 0) {
+        return { name:c.name, hex:c.hex };
+      }
+    }
+  }
+  return null;
+}
+
+/* ── 상품명에서 무드 성향 추정 (소재·계절처럼 '사실'이 아니라 취향 태그) ── */
+function inferMoods(name, category){
+  var t = String(name || '');
+  var m = {};
+  var set = function(k, v){ m[k] = Math.max(m[k] || 0, v); };
+  if (/스커트|스코츠|원피스/.test(t)) { set('feminine_layer', 5); }
+  if (/블라우스|셔츠|레이스|시스루|프릴|셔링|리본|프릴/.test(t)) { set('feminine_layer', 4); set('minimal_office', 3); }
+  if (/슬랙스|테일러드|블레이저/.test(t)) { set('minimal_office', 5); set('modern_chic', 3); }
+  if (/코트|자켓|트위드|스웨이드/.test(t)) { set('modern_chic', 4); set('minimal_office', 3); }
+  if (/가디건|니트|스웨터/.test(t)) { set('warm_cozy', 4); set('minimal_office', 3); }
+  if (/데님|청|쇼츠|반바지|조거/.test(t)) { set('casual_daily', 4); }
+  if (/반팔|티셔츠|티셔|맨투맨|후드/.test(t)) { set('casual_daily', 3); }
+  if (/홀터넥|튜브탑|나시|슬리브/.test(t) && category === 'top') { set('modern_chic', 3); }
+  return m;
+}
+
+function inferFormality(category, name){
+  var t = String(name || '');
+  if (category === 'outer') return /트위드|코트|자켓/.test(t) ? 4 : 3;
+  if (category === 'top') {
+    if (/셔츠|블라우스/.test(t)) return 3;
+    if (/티셔츠|티셔|반팔|나시|튜브탑|홀터넥|후드|맨투맨/.test(t)) return 2;
+    return 3;
+  }
+  if (category === 'bottom') {
+    if (/스커트|스코츠/.test(t)) return 3;
+    if (/슬랙스|테일러드/.test(t)) return 4;
+    return 2;
+  }
+  if (category === 'dress') return 3;
+  return 3;
+}
+
+var SEASON_TEMP_BANDS = {
+  '봄': [5, 20], '여름': [19, 32], '가을': [5, 20], '겨울': [-10, 8], '사계절': [-2, 28]
+};
+
+/* 소재가 확인됐으면 소재·카테고리 표로, 아니면 계절 표기로 적정 온도를 '추정'한다.
+   추측한 소재를 만들어 내지는 않는다. */
+function estimateTempFromFacts(category, materialKey, seasons){
+  if (materialKey && category && TEMP_HINTS[category]) {
+    var r = TEMP_HINTS[category][materialKey];
+    if (r) return [r[0], r[1]];
+  }
+  if (seasons && seasons.length) {
+    var lo = 99, hi = -99;
+    seasons.forEach(function(s){
+      var band = SEASON_TEMP_BANDS[s];
+      if (!band) return;
+      lo = Math.min(lo, band[0]);
+      hi = Math.max(hi, band[1]);
+    });
+    if (lo < hi) return [lo, hi];
+  }
+  return null;
+}
+
+/* 구매 목록 → 앱 아이템 */
+function buildWardrobe(){
+  return PURCHASED_WARDROBE.items.map(function(raw){
+    var name = cleanProductName(raw.name);
+    var textForCategory = name + ' ' + (raw.option || '');
+    var category = classifyCategory(textForCategory);
+    var mat = parseMaterialText(raw.material);
+    var seasons = parseSeasonText(raw.season);
+    var color = parseColorFromText(raw.option) || parseColorFromText(name);
+    var temp = estimateTempFromFacts(category, mat.key, seasons);
+    var item = normalizeItem({
+      id: 'w_' + raw.id,
+      name: name,
+      brand: raw.brand || '',
+      category: category,
+      colorName: color ? color.name : '',
+      colorHex: color ? color.hex : '',
+      materialKey: mat.key,
+      materialRaw: mat.raw,
+      seasons: seasons,
+      tempMin: temp ? temp[0] : null,
+      tempMax: temp ? temp[1] : null,
+      tempSource: temp ? (mat.key ? 'material' : 'season') : 'none',
+      formality: inferFormality(category, name),
+      moods: inferMoods(name, category),
+      source: raw.src === '지그재그' ? 'zigzag' : 'musinsa',
+      sourceLabel: raw.src || '',
+      option: raw.option || '',
+      price: raw.price || null,
+      link: raw.link || '',
+      orderDate: raw.date || '',
+      note: raw.note || '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    item.verify = {
+      category: !item.category,
+      material: !item.materialKey,
+      season: !item.seasons.length,
+      temp: item.tempMin == null || item.tempMax == null
+    };
+    item.needsReview = item.verify.material || item.verify.season || item.verify.temp;
+    return item;
+  });
+}
+
+/* 검수 필요 여부(저장된 아이템에도 적용) */
+function needsReview(item){
+  if (!item) return false;
+  return !item.materialKey || !item.seasons || !item.seasons.length || item.tempMin == null || item.tempMax == null || !item.category;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   4. 상태
+   ══════════════════════════════════════════════════════════════ */
+var DEFAULT_SETTINGS = { baseTemp: 2, sensitivity: 0 };
+
+var state = {
+  items: [],
+  dislikes: [],
+  settings: Object.assign({}, DEFAULT_SETTINGS),
+  looks: [],
+  lookPool: {},
+  draft: null,
+  activeTab: 'recommend',
+  addMode: 'link',
+  closetFilter: 'all',
+  lastDeleted: null
+};
+
+function normalizeItem(raw){
+  var it = Object.assign({}, raw || {});
+  if (!it.id) it.id = uid('it');
+  it.name = String(it.name || '').trim();
+  if (CATEGORY_KEYS.indexOf(it.category) < 0) it.category = '';
+  it.colorName = String(it.colorName || '').trim();
+  it.colorHex = it.colorHex || colorHexOf(it.colorName) || '';
+  it.materialKey = MATERIAL_KEYS.indexOf(it.materialKey) >= 0 ? it.materialKey : (it.materialKey ? 'etc' : '');
+  it.seasons = Array.isArray(it.seasons) ? it.seasons.filter(function(s){ return SEASONS.indexOf(s) >= 0; }) : [];
+  it.tempMin = (it.tempMin === 0 || it.tempMin) && isFinite(Number(it.tempMin)) ? Math.round(Number(it.tempMin)) : null;
+  it.tempMax = (it.tempMax === 0 || it.tempMax) && isFinite(Number(it.tempMax)) ? Math.round(Number(it.tempMax)) : null;
+  it.formality = clamp(Number(it.formality) || 3, 1, 5);
+  it.moods = (it.moods && typeof it.moods === 'object') ? it.moods : {};
+  it.source = it.source || 'manual';
+  it.note = it.note || '';
+  it.corrections = Array.isArray(it.corrections) ? it.corrections : [];
+  return it;
+}
+
+function persist(){
+  var payload = {
+    schemaVersion: SCHEMA_VERSION,
+    items: state.items,
+    dislikes: state.dislikes,
+    settings: state.settings,
+    savedAt: new Date().toISOString()
+  };
+  Storage.set(STORAGE_KEY, JSON.stringify(payload));
+}
+
+function migrate(data){
+  /* v1 → v2: 더미 샘플 옷장(16벌) → 실제 구매 목록 35벌 */
+  if (!data || !data.schemaVersion || data.schemaVersion < 2) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      items: buildWardrobe(),
+      dislikes: [],
+      settings: (data && data.settings) || {}
+    };
+  }
+  return data;
+}
+
+function loadState(){
+  var raw = Storage.get(STORAGE_KEY);
+  if (!raw) {
+    state.items = buildWardrobe();
+    state.settings = Object.assign({}, DEFAULT_SETTINGS);
+    state.dislikes = [];
+    persist();
+    return;
+  }
+  try {
+    var data = migrate(JSON.parse(raw));
+    state.items = Array.isArray(data.items) ? data.items.map(normalizeItem) : buildWardrobe();
+    state.dislikes = Array.isArray(data.dislikes) ? data.dislikes : [];
+    state.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings || {});
+    state.settings.baseTemp = clamp(Number(state.settings.baseTemp) || 2, -15, 35);
+    state.settings.sensitivity = clamp(Number(state.settings.sensitivity) || 0, -3, 3);
+  } catch (e) {
+    state.items = buildWardrobe();
+    state.settings = Object.assign({}, DEFAULT_SETTINGS);
+    state.dislikes = [];
+    persist();
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   5. 색상 유틸
+   ══════════════════════════════════════════════════════════════ */
+function colorHexOf(name){
+  if (!name) return '';
+  var exact = COLOR_TABLE.filter(function(c){ return c.name === name; })[0];
+  if (exact) return exact.hex;
+  var partial = COLOR_TABLE.filter(function(c){
+    return name.indexOf(c.name) >= 0 || c.name.indexOf(name) >= 0;
+  }).sort(function(a, b){ return b.name.length - a.name.length; })[0];
+  return partial ? partial.hex : '';
+}
+
+function hexToRgb(hex){
+  var h = String(hex || '').replace('#', '');
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  if (h.length !== 6) return { r:150, g:150, b:150 };
+  return { r:parseInt(h.slice(0, 2), 16), g:parseInt(h.slice(2, 4), 16), b:parseInt(h.slice(4, 6), 16) };
+}
+
+function rgbToHsl(r, g, b){
+  r /= 255; g /= 255; b /= 255;
+  var max = Math.max(r, g, b), min = Math.min(r, g, b);
+  var h = 0, s = 0, l = (max + min) / 2;
+  var d = max - min;
+  if (d !== 0) {
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return { h:h, s:s, l:l };
+}
+
+function colorMeta(item){
+  var hex = item.colorHex || colorHexOf(item.colorName) || '#9a9a9e';
+  var rgb = hexToRgb(hex);
+  var hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+  var neutral = hsl.s < 0.20 || hsl.l < 0.16 || hsl.l > 0.90;
+  var weight = neutral ? 1 : 2;
+  return { hex:hex, h:hsl.h, s:hsl.s, l:hsl.l, family: neutral ? 'neutral' : 'accent', weight:weight };
+}
+
+function hueDiff(a, b){
+  var d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+function nearestColorName(r, g, b){
+  var best = null, bestD = Infinity;
+  COLOR_TABLE.forEach(function(c){
+    var rgb = hexToRgb(c.hex);
+    var dr = rgb.r - r, dg = rgb.g - g, db = rgb.b - b;
+    var d = 2 * dr * dr + 4 * dg * dg + 3 * db * db;
+    if (d < bestD) { bestD = d; best = c; }
+  });
+  return best || { name:'그레이', hex:'#9a9a9e' };
+}
+
+/* ══════════════════════════════════════════════════════════════
+   6. 코디 추천 엔진
+   ══════════════════════════════════════════════════════════════ */
+function matOf(item){
+  for (var i = 0; i < MATERIALS.length; i++) if (MATERIALS[i].key === item.materialKey) return MATERIALS[i];
+  return MATERIALS[MATERIALS.length - 1];
+}
+function matLabel(item){ return item.materialKey ? matOf(item).label : '소재 미지정'; }
+function catLabel(key){
+  for (var i = 0; i < CATEGORIES.length; i++) if (CATEGORIES[i].key === key) return CATEGORIES[i].label;
+  return '기타';
+}
+
+function effectiveTemp(){
+  return clamp(Number(state.settings.baseTemp) + Number(state.settings.sensitivity), -25, 40);
+}
+
+function tempFit(item, T){
+  if (item.tempMin == null || item.tempMax == null) return 0;
+  if (T >= item.tempMin && T <= item.tempMax) return 1;
+  var d = T < item.tempMin ? item.tempMin - T : T - item.tempMax;
+  return Math.max(0, 1 - d / 10);
+}
+
+function targetWarmth(category, T){
+  var base = clamp((12 - T) / 30, 0, 1);
+  var offset = { outer:0.35, top:0.05, bottom:0.15, dress:0.1, shoes:0.1, acc:0 }[category] || 0;
+  return clamp(base + offset, 0, 1);
+}
+
+function dislikeItemCount(itemId){
+  return state.dislikes.reduce(function(n, d){
+    return n + ((d.itemIds || []).indexOf(itemId) >= 0 ? 1 : 0);
+  }, 0);
+}
+
+function scoreItem(item, mood, T){
+  var fit = tempFit(item, T);
+  if (fit <= 0.02) return -Infinity;
+  var m = item.materialKey ? matOf(item) : { warmth:0.5, label:'소재 미확인' };
+  var warmthPenalty = Math.abs(m.warmth - targetWarmth(item.category, T)) * 10;
+  var style = (item.moods && item.moods[mood.key]) || 0;
+  var formalityPenalty = Math.abs((item.formality || 3) - mood.formality) * 5;
+  var outsideRange = (T < item.tempMin || T > item.tempMax);
+  var unknownPenalty = item.materialKey ? 0 : 6;
+  return fit * 40 + style * 6 - formalityPenalty - warmthPenalty - (outsideRange ? 12 : 0) - unknownPenalty - dislikeItemCount(item.id) * 4;
+}
+
+function harmonyColors(items){
+  var accents = items.map(colorMeta).filter(function(c){ return c.family === 'accent'; });
+  var score = 0;
+  if (accents.length === 0) score += 12;
+  else if (accents.length === 1) score += 8;
+  else if (accents.length === 2) {
+    score += hueDiff(accents[0].h, accents[1].h) < 45 ? 3 : -12;
+  } else if (accents.length === 3) {
+    var hs = accents.map(function(a){ return a.h; });
+    var spread = Math.max.apply(null, hs) - Math.min.apply(null, hs);
+    score += spread < 60 ? -6 : -20;
+  } else {
+    return { reject:true, score:0 };
+  }
+  var names = {};
+  items.forEach(function(i){ names[i.colorName || '미지정'] = 1; });
+  if (Object.keys(names).length <= 3) score += 4;
+  return { reject:false, score:score };
+}
+
+function evaluateLook(items, mood, T){
+  /* 소재 궁합은 몸통에 입는 옷(상의·하의·아우터·원피스)만 본다. 신발·소품은 소재보다 역할이 중요 */
+  var bodyItems = items.filter(function(i){
+    return i.category === 'outer' || i.category === 'top' || i.category === 'bottom' || i.category === 'dress';
+  });
+  var warmths = bodyItems.map(function(i){ return matOf(i).warmth; });
+  var wMax = Math.max.apply(null, warmths);
+  var wMin = Math.min.apply(null, warmths);
+  var hasOuter = items.some(function(i){ return i.category === 'outer'; });
+  var hasSummerMat = warmths.some(function(w){ return w <= 0.28; });
+  var hasWinterMat = warmths.some(function(w){ return w >= 0.82; });
+
+  /* ── 소재 충돌: 린넨/시어서커 + 울/캐시미어/다운 ── */
+  if (hasSummerMat && hasWinterMat && T < 15) return null;
+  if (hasSummerMat && T < 10) return null;
+  if (wMax - wMin > 0.62) return null;
+
+  /* ── 아우터가 옷장에 있는데 영하권에서 안 입는 조합 ── */
+  var closetHasOuter = state.items.some(function(i){ return i.category === 'outer'; });
+  if (T <= 8 && !hasOuter && closetHasOuter) return null;
+  if (T >= 22 && hasOuter) return null;
+
+  /* ── 아우터의 보온력이 기온에 못 미치는 조합 (2°C에 트렌치 등) ── */
+  if (hasOuter) {
+    var outerItem = items.filter(function(i){ return i.category === 'outer'; })[0];
+    var outerWarmth = matOf(outerItem).warmth;
+    /* 옷장에 있는 가장 두꺼운 아우터를 기준으로 기준선을 잡는다 */
+    var outerCap = state.items.filter(function(i){ return i.category === 'outer'; })
+      .reduce(function(m, i){ return Math.max(m, matOf(i).warmth); }, 0);
+    if (T <= 6 && outerWarmth < Math.min(0.75, outerCap - 0.02)) return null;
+    if (T <= 12 && outerWarmth < Math.min(0.45, outerCap - 0.02)) return null;
+  }
+
+  var color = harmonyColors(items);
+  if (color.reject) return null;
+
+  var score = color.score;
+
+  var fitSum = 0;
+  items.forEach(function(i){ fitSum += tempFit(i, T); });
+  score += (fitSum / items.length) * 60;
+
+  var avgF = items.reduce(function(s, i){ return s + (i.formality || 3); }, 0) / items.length;
+  score -= Math.abs(avgF - mood.formality) * 8;
+
+  score += items.reduce(function(s, i){
+    return s + ((i.moods && i.moods[mood.key]) || 0) * 3;
+  }, 0);
+
+  if (T <= 0) {
+    var outer = items.filter(function(i){ return i.category === 'outer'; })[0];
+    score += outer ? matOf(outer).warmth * 10 : -18;
+  }
+  if (!items.some(function(i){ return i.category === 'acc'; })) score -= 5;
+
+  return { score: score };
+}
+
+function signatureOf(items){
+  return items.map(function(i){ return i.id; }).sort().join('|');
+}
+function isDisliked(sig){
+  return state.dislikes.some(function(d){ return d.signature === sig; });
+}
+
+/* 무드를 만드는 핵심 아이템 — 코디에 최소 1개는 들어가야 무드가 산다 */
+function isMoodKeyPiece(item, moodKey){
+  switch (moodKey) {
+    case 'minimal_office': return item.category === 'bottom' && (item.formality || 3) >= 4;
+    case 'feminine_layer': return item.category === 'dress' || /스커트|원피스/.test(item.name);
+    case 'casual_daily': return item.category === 'bottom' && (item.materialKey === 'denim' || /데님/.test(item.name));
+    case 'modern_chic': return (item.category === 'outer' && (item.formality || 3) >= 3) || (item.category === 'acc' && (item.formality || 3) >= 3);
+    case 'warm_cozy': return (item.category === 'top' && matOf(item).warmth >= 0.72) || (item.category === 'acc' && matOf(item).warmth >= 0.72);
+    case 'sporty_active': return item.category === 'shoes' && matOf(item).key === 'canvas';
+  }
+  return true;
+}
+function closetHasMoodKey(moodKey){
+  return state.items.some(function(i){ return isMoodKeyPiece(i, moodKey); });
+}
+
+/* 무드를 만들 옷이 옷장에 있는지: 핵심 아이템 또는 그 무드 성향이 강한 옷이 있어야 한다 */
+function moodIsAvailable(mood){
+  if (closetHasMoodKey(mood.key)) return true;
+  return state.items.some(function(i){ return i.moods && i.moods[mood.key] >= 3; });
+}
+
+function buildCandidates(mood, T){
+  var excluded = {};
+  state.dislikes.forEach(function(d){ excluded[d.signature] = 1; });
+
+  function pick(cat, n){
+    return state.items.filter(function(i){ return i.category === cat; })
+      .map(function(i){ return { i:i, s:scoreItem(i, mood, T) }; })
+      .filter(function(x){ return x.s > -Infinity; })
+      .sort(function(a, b){ return b.s - a.s; })
+      .slice(0, n)
+      .map(function(x){ return x.i; });
+  }
+
+  var tops = pick('top', 4);
+  var bottoms = pick('bottom', 4);
+  var dresses = pick('dress', 2);
+  var outers = (T <= 18) ? pick('outer', 4) : [];
+  var shoes = pick('shoes', 3);
+  var accs = pick('acc', 3);
+
+  if (!tops.length && !dresses.length) return [];
+  var bases = [];
+  tops.forEach(function(t){ bottoms.forEach(function(b){ bases.push([t, b]); }); });
+  dresses.forEach(function(d){ bases.push([d]); });
+  if (!bases.length) return [];
+
+  var outerList = (T <= 18) ? outers.concat([null]) : [null];
+  var accList = accs.concat([null]);
+  var shoeList = shoes.length ? shoes.concat([null]) : [null];  /* 신발이 없으면 신발 없이 추천하고 '부족한 옷'으로 제안한다 */
+  var out = [];
+  var seen = {};
+
+  bases.forEach(function(base){
+    outerList.forEach(function(outer){
+      shoeList.forEach(function(shoe){
+        accList.forEach(function(acc){
+          var items = base.slice();
+          if (outer) items.push(outer);
+          if (shoe) items.push(shoe);
+          if (acc) items.push(acc);
+          var ev = evaluateLook(items, mood, T);
+          if (!ev) return;
+          var sig = signatureOf(items);
+          if (excluded[sig] || seen[sig]) return;
+          seen[sig] = 1;
+          out.push({ signature:sig, items:items, score:ev.score });
+        });
+      });
+    });
+  });
+
+  out.sort(function(a, b){ return b.score - a.score; });
+  return out.slice(0, 10);
+}
+
+function suggestMissing(items, mood, T){
+  var out = [];
+  var names = items.map(function(i){ return i.name; }).join(' ');
+  var hasCat = function(c){ return items.some(function(i){ return i.category === c; }); };
+  var maxWarm = function(c){
+    return items.filter(function(i){ return i.category === c; })
+      .reduce(function(m, i){ return Math.max(m, matOf(i).warmth); }, 0);
+  };
+  var add = function(name, why, priority){
+    if (out.some(function(o){ return o.name === name; })) return;
+    out.push({ name:name, why:why, priority:priority || 5 });
+  };
+  var closetHas = function(c){ return state.items.some(function(i){ return i.category === c; }); };
+
+  /* 옷장에 아예 없는 카테고리 (지금은 신발·소품이 비어 있는 경우가 많다) */
+  if (!closetHas('shoes') && !hasCat('shoes')) {
+    add('데일리 스니커즈', '옷장에 신발이 없어 코디가 반만 완성돼요.', 1);
+  }
+  if (!closetHas('outer') && T <= 10) {
+    add('울 코트', '체감 ' + T + '°C에 걸칠 아우터가 옷장에 없어요.', 1);
+  }
+  if (!closetHas('acc') && !hasCat('acc') && T <= 0) {
+    add('캐시미어 머플러', '체감 ' + T + '°C에는 목선 보온이 필요해요.', 2);
+  }
+
+  if (T <= 6 && maxWarm('top') < 0.55) {
+    add('기모 니트·터틀넥', '지금 상의는 반팔·얇은 블라우스라 ' + T + '°C에는 부족해요.', 1);
+  }
+  if (T <= 0 && !items.some(function(i){ return i.category === 'acc' && matOf(i).warmth >= 0.55; })) {
+    add('기모 니트 장갑', '손끝까지 막아야 체감이 달라져요.', 4);
+  }
+  if (T >= 24 && !items.some(function(i){ return matOf(i).warmth <= 0.30; })) {
+    add('린넨 셔츠', '더운 날에는 통기성 좋은 소재가 필요해요.', 2);
+  }
+  if (mood.key === 'minimal_office' && !items.some(function(i){ return i.category === 'bottom' && (i.formality || 3) >= 4; })) {
+    add('테일러드 슬랙스', '오피스 무드에는 각 잡힌 하의가 어울려요.', 3);
+  }
+  if (mood.key === 'feminine_layer' && !/스커트|원피스/.test(names)) {
+    add('플리츠 스커트', '페미닌 레이어드에는 흐르는 실루엣이 필요해요.', 3);
+  }
+  if (mood.key === 'modern_chic' && !items.some(function(i){ return i.category === 'outer' && (i.formality || 3) >= 3; })) {
+    add('트렌치 자켓', '시크 무드는 견고한 아우터로 완성돼요.', 3);
+  }
+  if (mood.key === 'warm_cozy' && maxWarm('top') < 0.75 && maxWarm('acc') < 0.75) {
+    add('캐시미어 니트', '코지 무드에는 보온 소재가 필요해요.', 3);
+  }
+  if (mood.key === 'casual_daily' && closetHas('shoes') && !items.some(function(i){ return i.category === 'shoes' && (i.formality || 3) <= 2; })) {
+    add('화이트 스니커즈', '캐주얼 무드에는 편한 신발이 어울려요.', 3);
+  }
+  if (mood.key === 'sporty_active' && closetHas('shoes') && !items.some(function(i){ return i.category === 'shoes' && matOf(i).key === 'canvas'; })) {
+    add('경량 스니커즈', '활동적인 날에는 가벼운 신발이 좋아요.', 4);
+  }
+  if (mood.formality >= 4 && closetHas('shoes') && !items.some(function(i){ return i.category === 'shoes' && (i.formality || 3) >= 3; })) {
+    add('블랙 로퍼', '격식 있는 무드에는 단정한 구두가 어울려요.', 3);
+  }
+
+  return out.sort(function(a, b){ return a.priority - b.priority; }).slice(0, 3);
+}
+
+function describeLook(items, mood, T){
+  var mats = [];
+  items.forEach(function(i){
+    var l = matLabel(i);
+    if (mats.indexOf(l) < 0) mats.push(l);
+  });
+  var accents = items.map(colorMeta).filter(function(c){ return c.family === 'accent'; });
+  var colorText = accents.length ? '포인트 컬러 ' + accents.length + '개' : '무채색 통일';
+  return '체감 ' + T + '°C · ' + mats.slice(0, 3).join(' / ') + ' · ' + colorText;
+}
+
+function recomputeLooks(){
+  var T = effectiveTemp();
+  state.lookPool = {};
+  var pools = [];
+  MOODS.forEach(function(mood){
+    if (!moodIsAvailable(mood)) return;
+    var cands = buildCandidates(mood, T);
+    state.lookPool[mood.key] = cands;
+    if (cands.length) pools.push({ mood:mood, cands:cands });
+  });
+
+  /* 핵심 아이템이 옷장에 적은 무드부터 배정 (스커트처럼 희소한 아이템을 다른 무드가 먼저 가져가지 않도록) */
+  pools.sort(function(a, b){
+    var ra = state.items.filter(function(i){ return isMoodKeyPiece(i, a.mood.key); }).length;
+    var rb = state.items.filter(function(i){ return isMoodKeyPiece(i, b.mood.key); }).length;
+    if (ra !== rb) return ra - rb;
+    return b.cands[0].score - a.cands[0].score;
+  });
+
+  var used = {};
+  var usedItems = {};
+  var looks = [];
+
+  /* 이미 고른 코디와 최소 minDiff벌은 달라야 한다(무드가 달라도 같은 옷만 바꿔 입은 듯한 카드는 피함) */
+  function chooseFor(p, minDiff, requireKey){
+    var best = null, bestAdj = -Infinity;
+    for (var i = 0; i < p.cands.length; i++) {
+      var c = p.cands[i];
+      if (used[c.signature]) continue;
+      if (requireKey && !c.items.some(function(it){ return isMoodKeyPiece(it, p.mood.key); })) continue;
+      var fresh = c.items.filter(function(it){ return !usedItems[it.id]; }).length;
+      if (fresh < minDiff) continue;
+      var adj = c.score - (c.items.length - fresh) * 6;
+      if (adj > bestAdj) { bestAdj = adj; best = c; }
+    }
+    return best;
+  }
+
+  pools.forEach(function(p){
+    if (looks.length >= 5) return;
+    var needKey = closetHasMoodKey(p.mood.key);
+    var pick = (needKey ? chooseFor(p, 2, true) : null) ||
+               (needKey ? chooseFor(p, 1, true) : null) ||
+               chooseFor(p, 2, false) ||
+               chooseFor(p, 1, false) ||
+               chooseFor(p, 0, false);
+    if (!pick) return;
+    used[pick.signature] = 1;
+    pick.items.forEach(function(it){ usedItems[it.id] = 1; });
+    looks.push({
+      moodKey: p.mood.key,
+      mood: p.mood,
+      signature: pick.signature,
+      items: pick.items,
+      candidates: p.cands,
+      candidateIndex: p.cands.indexOf(pick)
+    });
+  });
+
+  state.looks = looks;
+  return looks;
+}
+
+/* ── 아이템 온도 보정 ── */
+function correctedRange(item, dir, T){
+  var span = clamp((item.tempMax != null && item.tempMin != null ? item.tempMax - item.tempMin : 14), 6, 18);
+  if (dir === 'cold') {
+    var min = clamp(T + 3, -25, 34);
+    return [min, clamp(min + span, -20, 40)];
+  }
+  var max = clamp(T - 3, -25, 36);
+  return [clamp(max - span, -25, 40), max];
+}
+
+function correctItemTemp(itemId, dir){
+  var item = state.items.filter(function(i){ return i.id === itemId; })[0];
+  if (!item) return null;
+  var T = effectiveTemp();
+  var before = [item.tempMin, item.tempMax];
+  var after = correctedRange(item, dir, T);
+  item.tempMin = after[0];
+  item.tempMax = after[1];
+  item.updatedAt = new Date().toISOString();
+  item.corrections = (item.corrections || []).concat([{
+    at: new Date().toISOString(), dir: dir, temp: T, from: before, to: after
+  }]);
+  persist();
+  recomputeLooks();
+  renderAll();
+  toast(item.name + ' 적정 온도를 ' + before[0] + '~' + before[1] + '°C → ' + after[0] + '~' + after[1] + '°C로 보정했어요');
+  return { before: before, after: after };
+}
+
+/* ══════════════════════════════════════════════════════════════
+   7. 링크 파서 · 샘플 상품 데이터
+   ══════════════════════════════════════════════════════════════ */
+var PRODUCT_FIXTURES = [
+  {
+    id:'musinsa-4128837',
+    label:'무신사 · 캐시미어 코트',
+    match:/musinsa\.com\/(?:app\/goods|products)\/4128837/i,
+    data:{
+      name:'캐시미어 블렌드 싱글 코트', category:'outer', colorName:'카멜',
+      materialKey:'cashmere', seasons:['겨울'], tempMin:-10, tempMax:8,
+      formality:4, moods:{ minimal_office:5, modern_chic:4 }
+    }
+  },
+  {
+    id:'uniqlo-E460931',
+    label:'유니클로 · 메리노 터틀넥',
+    match:/uniqlo\.com\/.*E460931/i,
+    data:{
+      name:'엑스트라 파인 메리노 터틀넥 니트', category:'top', colorName:'블랙',
+      materialKey:'wool', seasons:['겨울','사계절'], tempMin:-5, tempMax:14,
+      formality:3, moods:{ minimal_office:4, warm_cozy:4 }
+    }
+  },
+  {
+    id:'zigzag-12345678',
+    label:'지그재그 · 린넨 셔츠',
+    match:/zigzag\.kr\/(?:catalog\/)?products\/12345678/i,
+    data:{
+      name:'린넨 블렌드 오버핏 셔츠', category:'top', colorName:'아이보리',
+      materialKey:'linen', seasons:['여름'], tempMin:19, tempMax:32,
+      formality:2, moods:{ casual_daily:4, feminine_layer:3 }
+    }
+  }
+];
+
+var SAMPLE_LINKS = [
+  { label:'샘플 1 · 상품 정보가 있는 링크', desc:'무신사 코트 — 전 항목 자동 입력', url:'https://www.musinsa.com/products/4128837?name=%EC%BA%90%EC%8B%9C%EB%AF%B8%EC%96%B4%20%EB%B8%94%EB%A0%8C%EB%93%9C%20%EC%BD%94%ED%8A%B8' },
+  { label:'샘플 2 · 일부만 읽히는 링크', desc:'자라 데님 팬츠 — 색상·온도 비어 있음', url:'https://www.zara.com/kr/ko/%EC%9B%8C%EC%8B%9C%EB%93%9C-%EB%8D%B0%EB%8B%98-%ED%8C%AC%EC%B8%A0-p08262020.html' },
+  { label:'샘플 3 · 메타데이터 없는 링크', desc:'상품명 없는 짧은 링크 — 전부 빈칸', url:'https://shop.example.com/p/88213' }
+];
+
+var CATEGORY_WORDS = [
+  { cat:'outer', words:['코트','자켓','재킷','점퍼','패딩','파카','다운','트렌치','블레이저','무스탕','아노락','바람막이','coat','jacket','padded','trench','blazer','parka'] },
+  { cat:'shoes', words:['스니커즈','운동화','로퍼','부츠','구두','샌들','슬리퍼','힐','shoes','sneakers','loafers','boots','heels','sandals'] },
+  { cat:'bottom', words:['팬츠','바지','슬랙스','데님','청바지','스커트','치마','쇼츠','반바지','레깅스','pants','trousers','jeans','skirt','shorts','denim'] },
+  { cat:'dress', words:['원피스','드레스','dress','onepiece'] },
+  { cat:'acc', words:['머플러','목도리','스카프','가방','백','목걸이','귀걸이','반지','벨트','모자','장갑','양말','scarf','muffler','bag','necklace','ring','belt','hat','gloves','socks'] },
+  { cat:'top', words:['셔츠','니트','스웨터','티셔츠','맨투맨','후드','블라우스','탑','나시','슬리브','shirt','knit','sweater','tee','hoodie','blouse','top','turtleneck','cardigan'] }
+];
+
+var COLOR_WORDS = COLOR_TABLE.map(function(c){
+  return { name:c.name, hex:c.hex, words:[c.name] };
+}).concat([
+  { name:'블랙', hex:'#1c1c1e', words:['black'] },
+  { name:'화이트', hex:'#f8f7f4', words:['white'] },
+  { name:'아이보리', hex:'#f1ebdd', words:['ivory'] },
+  { name:'크림', hex:'#e8dcc8', words:['cream'] },
+  { name:'베이지', hex:'#d8c3a5', words:['beige'] },
+  { name:'카멜', hex:'#b08968', words:['camel'] },
+  { name:'브라운', hex:'#7a5a44', words:['brown'] },
+  { name:'그레이', hex:'#9a9a9e', words:['gray','grey'] },
+  { name:'차콜', hex:'#3b3b3f', words:['charcoal'] },
+  { name:'네이비', hex:'#28324a', words:['navy'] },
+  { name:'인디고', hex:'#3f5a7d', words:['indigo'] },
+  { name:'블루', hex:'#4a7fb5', words:['blue'] },
+  { name:'그린', hex:'#4f7a5b', words:['green'] },
+  { name:'카키', hex:'#8a8a5c', words:['khaki'] },
+  { name:'올리브', hex:'#6b6f46', words:['olive'] },
+  { name:'레드', hex:'#b23a34', words:['red'] },
+  { name:'버건디', hex:'#6d2a34', words:['burgundy'] },
+  { name:'핑크', hex:'#dfa3ad', words:['pink'] },
+  { name:'라벤더', hex:'#b4a6d0', words:['lavender'] },
+  { name:'옐로우', hex:'#e3c163', words:['yellow'] },
+  { name:'오렌지', hex:'#d98452', words:['orange'] },
+  { name:'골드', hex:'#c2a35a', words:['gold'] },
+  { name:'실버', hex:'#c8c8cc', words:['silver'] }
+]).sort(function(a, b){ return b.name.length - a.name.length; });
+
+var MATERIAL_WORDS = [
+  { key:'cashmere', words:['캐시미어','cashmere'] },
+  { key:'seersucker', words:['시어서커','seersucker'] },
+  { key:'fleece', words:['플리스','기모','fleece'] },
+  { key:'leather', words:['가죽','레더','leather'] },
+  { key:'denim', words:['데님','denim'] },
+  { key:'linen', words:['린넨','마 ','linen'] },
+  { key:'wool', words:['울','wool','메리노','merino'] },
+  { key:'down', words:['구스다운','다운','down','덕다운'] },
+  { key:'poly', words:['폴리에스터','폴리','polyester','poly'] },
+  { key:'cotton', words:['코튼','면','cotton'] },
+  { key:'knit', words:['니트','knit'] },
+  { key:'canvas', words:['캔버스','canvas'] }
+];
+
+function decodeSafe(s){
+  try { return decodeURIComponent(s); } catch (e) { return s; }
+}
+
+function tidyName(raw){
+  var s = String(raw).replace(/\+/g, ' ');
+  s = decodeSafe(s);
+  s = s.replace(/\.(html?|php|aspx?|jsp)$/i, '');
+  s = s.replace(/[-_]+/g, ' ');
+  s = s.replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+function extractProductName(url){
+  var noHash = url.split('#')[0];
+  var qIndex = noHash.indexOf('?');
+  var query = qIndex >= 0 ? noHash.slice(qIndex + 1) : '';
+  var params = {};
+  query.split('&').forEach(function(pair){
+    var kv = pair.split('=');
+    if (!kv[0]) return;
+    params[decodeSafe(kv[0]).toLowerCase()] = decodeSafe((kv[1] || '').replace(/\+/g, ' '));
+  });
+  var nameKeys = ['name', 'productname', 'goodsname', 'itemname', 'title', 'product_name'];
+  for (var i = 0; i < nameKeys.length; i++) {
+    var v = params[nameKeys[i]];
+    if (v && v.trim().length > 1) return tidyName(v);
+  }
+  var stop = ['products','product','goods','app','catalog','shop','item','items','brand','category','c','p','kr','ko','en','www','m','detail','view'];
+  var withoutScheme = noHash.replace(/^[a-z]+:\/\//i, '');
+  var firstSlash = withoutScheme.indexOf('/');
+  var pathPart = firstSlash >= 0 ? withoutScheme.slice(firstSlash) : '';
+  var path = decodeSafe(pathPart).split('/').filter(Boolean);
+  for (var j = path.length - 1; j >= 0; j--) {
+    var seg = path[j];
+    var withoutExt = seg.replace(/\.(html?|php|aspx?|jsp)$/i, '');
+    if (withoutExt.indexOf('.') >= 0) continue;
+    if (/^\d+$/.test(withoutExt)) continue;
+    if (/\d{4,}/.test(withoutExt) && !/[가-힣]/.test(withoutExt)) continue;
+    if (stop.indexOf(withoutExt.toLowerCase()) >= 0) continue;
+    var cleaned = tidyName(withoutExt).replace(/\b[pc]\d{6,}\b/ig, '').trim();
+    if (cleaned.length >= 3 && /[가-힣a-zA-Z]/.test(cleaned) && !/^[a-z]{1,3}$/i.test(cleaned)) {
+      return cleaned;
+    }
+  }
+  return '';
+}
+
+function matchCategory(text){
+  for (var i = 0; i < CATEGORY_WORDS.length; i++) {
+    var entry = CATEGORY_WORDS[i];
+    for (var j = 0; j < entry.words.length; j++) {
+      var w = entry.words[j];
+      if (/^[a-z]+$/i.test(w)) {
+        if (new RegExp('(^|[^a-z])' + w + '([^a-z]|$)', 'i').test(text)) return entry.cat;
+      } else if (text.indexOf(w) >= 0) {
+        return entry.cat;
+      }
+    }
+  }
+  return '';
+}
+
+function matchColor(text){
+  for (var i = 0; i < COLOR_WORDS.length; i++) {
+    var c = COLOR_WORDS[i];
+    for (var j = 0; j < c.words.length; j++) {
+      var w = c.words[j];
+      if (/^[a-z ]+$/i.test(w)) {
+        if (new RegExp('(^|[^a-z])' + w + '([^a-z]|$)', 'i').test(text)) return c;
+      } else if (text.indexOf(w) >= 0) {
+        return c;
+      }
+    }
+  }
+  return null;
+}
+
+function matchMaterial(text){
+  for (var i = 0; i < MATERIAL_WORDS.length; i++) {
+    var m = MATERIAL_WORDS[i];
+    for (var j = 0; j < m.words.length; j++) {
+      var w = m.words[j];
+      if (/^[a-z ]+$/i.test(w)) {
+        if (new RegExp('(^|[^a-z])' + w.trim() + '([^a-z]|$)', 'i').test(text)) return m;
+      } else if (text.indexOf(w) >= 0) {
+        return m;
+      }
+    }
+  }
+  return null;
+}
+
+function matchSeasons(text){
+  var found = [];
+  var map = [
+    { s:'봄', words:['봄','spring'] },
+    { s:'여름', words:['여름','summer'] },
+    { s:'가을', words:['가을','autumn','fall'] },
+    { s:'겨울', words:['겨울','winter'] },
+    { s:'사계절', words:['사계절','간절기','all season','allseason'] }
+  ];
+  map.forEach(function(entry){
+    entry.words.forEach(function(w){
+      if (/^[a-z ]+$/i.test(w)) {
+        if (new RegExp('(^|[^a-z])' + w.trim() + '([^a-z]|$)', 'i').test(text)) found.push(entry.s);
+      } else if (text.indexOf(w) >= 0) {
+        found.push(entry.s);
+      }
+    });
+  });
+  return found.filter(function(v, i, arr){ return arr.indexOf(v) === i; });
+}
+
+function matchTemp(text){
+  var m = text.match(/(-?\d{1,2})\s*(?:°c|도)?\s*[~\-]\s*(-?\d{1,2})\s*(?:°c|도)/i);
+  if (!m) return null;
+  var a = Number(m[1]), b = Number(m[2]);
+  if (!isFinite(a) || !isFinite(b)) return null;
+  if (a < -30 || a > 45 || b < -30 || b > 45) return null;
+  return [Math.min(a, b), Math.max(a, b)];
+}
+
+function parseUrl(rawUrl){
+  var text = decodeSafe(String(rawUrl)).toLowerCase();
+  var fields = {};
+  var found = [];
+
+  var name = extractProductName(rawUrl);
+  if (name) { fields.name = name; found.push('name'); }
+
+  var cat = matchCategory(text);
+  if (cat) { fields.category = cat; found.push('category'); }
+
+  var color = matchColor(text);
+  if (color) { fields.colorName = color.name; fields.colorHex = color.hex; found.push('colorName'); }
+
+  var mat = matchMaterial(text);
+  if (mat) { fields.materialKey = mat.key; found.push('materialKey'); }
+
+  var seasons = matchSeasons(text);
+  if (seasons.length) { fields.seasons = seasons; found.push('seasons'); }
+
+  var temp = matchTemp(text);
+  if (temp) { fields.tempMin = temp[0]; fields.tempMax = temp[1]; found.push('temp'); }
+
+  var required = ['name', 'category', 'colorName', 'materialKey', 'seasons', 'temp'];
+  var missing = required.filter(function(k){ return found.indexOf(k) < 0; });
+  return { fields: fields, found: found, missing: missing };
+}
+
+/* ══════════════════════════════════════════════════════════════
+   8. 프로바이더 (2단계 서버 교체 지점)
+   ══════════════════════════════════════════════════════════════ */
+var Providers = {
+  productMeta: {
+    resolve: function(url){
+      return delay(320).then(function(){
+        for (var i = 0; i < PRODUCT_FIXTURES.length; i++) {
+          var f = PRODUCT_FIXTURES[i];
+          if (f.match.test(url)) {
+            return { source:'fixture', url:url, fields:Object.assign({}, f.data), found:['name','category','colorName','materialKey','seasons','temp'], missing:[] };
+          }
+        }
+        var parsed = parseUrl(url);
+        return { source:'url-parser', url:url, fields:parsed.fields, found:parsed.found, missing:parsed.missing };
+      });
+    }
+  },
+  vision: {
+    analyze: function(file){
+      return readFileAsDataURL(file).then(function(dataUrl){
+        return sampleImagePixels(dataUrl).then(function(pixels){
+          var dom = dominantColor(pixels);
+          var named = nearestColorName(dom.r, dom.g, dom.b);
+          return {
+            fields:{ colorName:named.name, colorHex:named.hex },
+            demo:false,
+            previewUrl:dataUrl,
+            notes:['사진 픽셀 분석으로 색상을 추정했어요 (' + named.name + ').', '소재·카테고리는 사진만으로 확정할 수 없어 비워 뒀어요.']
+          };
+        }).catch(function(){
+          var guess = simulatedColorFromFile(file);
+          return {
+            fields:{ colorName:guess.name, colorHex:guess.hex },
+            demo:true,
+            previewUrl:dataUrl,
+            notes:['이 환경에서는 픽셀 분석을 실행할 수 없어 시뮬레이션 값으로 채웠어요.', '검수 단계에서 반드시 확인해 주세요.']
+          };
+        });
+      });
+    }
+  }
+};
+
+function readFileAsDataURL(file){
+  return new Promise(function(resolve, reject){
+    try {
+      var reader = new FileReader();
+      reader.onload = function(){ resolve(String(reader.result || '')); };
+      reader.onerror = function(){ reject(new Error('file-read-error')); };
+      reader.readAsDataURL(file);
+    } catch (e) { reject(e); }
+  });
+}
+
+function sampleImagePixels(dataUrl){
+  return new Promise(function(resolve, reject){
+    var canvas, ctx;
+    try {
+      canvas = document.createElement('canvas');
+      ctx = canvas.getContext ? canvas.getContext('2d') : null;
+    } catch (e) { ctx = null; }
+    if (!ctx) { reject(new Error('canvas-unavailable')); return; }
+
+    var img = new Image();
+    var done = false;
+    var timer = setTimeout(function(){
+      if (!done) { done = true; reject(new Error('image-timeout')); }
+    }, 6000);
+
+    img.onload = function(){
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try {
+        var w = 48, h = 48;
+        canvas.width = w; canvas.height = h;
+        ctx.drawImage(img, 0, 0, w, h);
+        var data = ctx.getImageData(Math.round(w * 0.2), Math.round(h * 0.15), Math.round(w * 0.6), Math.round(h * 0.75)).data;
+        var pixels = [];
+        for (var i = 0; i < data.length; i += 4) {
+          if (data[i + 3] < 40) continue;
+          pixels.push({ r:data[i], g:data[i + 1], b:data[i + 2] });
+        }
+        if (!pixels.length) { reject(new Error('no-pixels')); return; }
+        resolve(pixels);
+      } catch (e) { reject(e); }
+    };
+    img.onerror = function(){
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      reject(new Error('image-error'));
+    };
+    img.src = dataUrl;
+  });
+}
+
+function dominantColor(pixels){
+  var buckets = {};
+  for (var i = 0; i < pixels.length; i++) {
+    var p = pixels[i];
+    var key = (p.r >> 4) + ',' + (p.g >> 4) + ',' + (p.b >> 4);
+    if (!buckets[key]) buckets[key] = { r:0, g:0, b:0, n:0 };
+    buckets[key].r += p.r; buckets[key].g += p.g; buckets[key].b += p.b; buckets[key].n++;
+  }
+  var best = null;
+  for (var k in buckets) {
+    if (!Object.prototype.hasOwnProperty.call(buckets, k)) continue;
+    if (!best || buckets[k].n > best.n) best = buckets[k];
+  }
+  if (!best) throw new Error('no-pixels');
+  return { r:Math.round(best.r / best.n), g:Math.round(best.g / best.n), b:Math.round(best.b / best.n) };
+}
+
+function simulatedColorFromFile(file){
+  var name = (file && file.name) || 'photo';
+  var hash = 0;
+  for (var i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) % 100000;
+  var pool = [
+    { name:'블랙', hex:'#1c1c1e' },
+    { name:'크림', hex:'#e8dcc8' },
+    { name:'카멜', hex:'#b08968' },
+    { name:'그레이', hex:'#9a9a9e' },
+    { name:'네이비', hex:'#28324a' },
+    { name:'베이지', hex:'#d8c3a5' }
+  ];
+  return pool[hash % pool.length];
+}
+
+/* ══════════════════════════════════════════════════════════════
+   9. 렌더
+   ══════════════════════════════════════════════════════════════ */
+var toastTimer = null;
+function toast(message, actionLabel, actionFn){
+  var el = $('#toast');
+  if (!el) return;
+  el.innerHTML = '<span>' + esc(message) + '</span>' +
+    (actionLabel ? ' <button class="toast-action" id="toastAction">' + esc(actionLabel) + '</button>' : '');
+  el.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  if (actionLabel && actionFn) {
+    var btn = $('#toastAction');
+    if (btn) btn.addEventListener('click', function(){
+      actionFn();
+      el.classList.remove('show');
+    });
+  }
+  toastTimer = setTimeout(function(){ el.classList.remove('show'); }, actionLabel ? 5200 : 2600);
+}
+
+function renderToday(){
+  var d = new Date();
+  var days = ['일','월','화','수','목','금','토'];
+  $('#todayLabel').textContent = (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + days[d.getDay()] + '요일 · 코디 5가지';
+}
+
+function renderTempControls(){
+  var s = state.settings;
+  $('#baseTempLabel').textContent = s.baseTemp;
+  $('#effectiveTempLabel').textContent = effectiveTemp();
+  var slider = $('#tempSlider');
+  slider.value = s.baseTemp;
+  slider.min = -15;
+  slider.max = 35;
+  slider.setAttribute('aria-valuetext', '현재 기온 ' + s.baseTemp + '도');
+
+  var quick = [-8, -3, 2, 8, 16];
+  $('#tempQuickRow').innerHTML = quick.map(function(t){
+    return '<button class="chip' + (Number(s.baseTemp) === t ? ' active' : '') + '" data-action="quick-temp" data-temp="' + t + '">' +
+      (t > 0 ? '+' + t : t) + '°C</button>';
+  }).join('');
+
+  var labels = { '-3':'추위 많이 탐', '-2':'추위 탐', '-1':'추위 조금', '0':'보통', '1':'더위 조금', '2':'더위 탐', '3':'더위 많이 탐' };
+  var html = '';
+  for (var v = -3; v <= 3; v++) {
+    html += '<button class="' + (Number(s.sensitivity) === v ? 'active' : '') + '" data-action="sensitivity" data-value="' + v + '">' +
+      (v > 0 ? '+' + v : v) + '</button>';
+  }
+  $('#sensitivityRow').innerHTML = html;
+
+  var eff = effectiveTemp();
+  var hint;
+  if (s.sensitivity === 0) hint = '체감 보정 없음 — 기온 그대로 계산해요.';
+  else if (s.sensitivity < 0) hint = '추위를 타는 편이라 ' + s.baseTemp + '°C를 ' + eff + '°C처럼 계산해요. 더 따뜻한 조합을 골라요.';
+  else hint = '더위를 타는 편이라 ' + s.baseTemp + '°C를 ' + eff + '°C처럼 계산해요. 더 가벼운 조합을 골라요.';
+  $('#sensitivityHint').textContent = hint;
+}
+
+function renderLooks(){
+  var T = effectiveTemp();
+  var list = $('#lookList');
+  $('#lookCount').textContent = state.looks.length ? '(' + state.looks.length + ')' : '';
+
+  if (!state.items.length) {
+    list.innerHTML = '<div class="card empty-card"><span class="emoji">🧺</span>옷장이 비어 있어요.<br>옷을 등록하면 코디를 추천해 드려요.</div>';
+    return;
+  }
+  if (!state.looks.length) {
+    var tips = T <= 6 ? ['기모 니트·터틀넥', '울 코트', '기모 팬츠'] : (T >= 26 ? ['린넨 셔츠', '반팔 티', '샌들'] : ['얇은 니트', '셔츠', '팬츠']);
+    list.innerHTML = '<div class="card empty-card"><span class="emoji">🌡️</span>' +
+      '지금 기온(' + T + '°C)에 맞는 옷이 옷장에 없어요.<br>' +
+      '이런 옷을 등록하면 바로 추천할 수 있어요.<div class="badge-line" style="justify-content:center">' +
+      tips.map(function(t){ return '<span class="badge warn">' + esc(t) + '</span>'; }).join('') +
+      '</div></div>';
+    return;
+  }
+
+  list.innerHTML = state.looks.map(function(look, idx){
+    var items = look.items;
+    var missing = suggestMissing(items, look.mood, T);
+    var title = items.filter(function(i){ return i.category !== 'acc'; })
+      .slice(0, 3).map(function(i){ return i.name; }).join(' + ');
+
+    var rows = items.map(function(it){
+      var range = (it.tempMin == null || it.tempMax == null) ? '온도 미정' : it.tempMin + '~' + it.tempMax + '°C';
+      var estimated = (it.tempMin != null && it.tempSource && it.tempSource !== 'manual' && !(it.corrections && it.corrections.length)) ? '<span class="estimate-tag">추정</span>' : '';
+      return '<li class="look-item">' +
+        '<span class="cat-tag">' + esc(catLabel(it.category)) + '</span>' +
+        '<span class="color-dot" style="background:' + esc(it.colorHex || '#e6e0d8') + '"></span>' +
+        '<span class="item-main"><span class="item-name">' + esc(it.name) + '</span>' +
+        '<span class="item-range">' + esc(it.materialKey ? matLabel(it) : '소재 미확인') + ' · <b>' + esc(range) + '</b>' + estimated + '</span></span>' +
+        '<span class="item-actions">' +
+        '<button class="temp-btn" data-action="item-cold" data-id="' + esc(it.id) + '" aria-label="' + esc(it.name) + ' 지금 기온엔 추워요">🥶<span class="t"> 추워요</span></button>' +
+        '<button class="temp-btn" data-action="item-hot" data-id="' + esc(it.id) + '" aria-label="' + esc(it.name) + ' 지금 기온엔 더워요">🥵<span class="t"> 더워요</span></button>' +
+        '</span></li>';
+    }).join('');
+
+    var thin = items.filter(function(i){
+      return (i.category === 'top' || i.category === 'bottom' || i.category === 'dress') &&
+             i.tempMin != null && (T < i.tempMin - 4 || T > i.tempMax + 4);
+    });
+    var warnHtml = thin.length ? (
+      '<p class="season-warn">⚠️ ' + esc(thin.map(function(i){ return i.name; }).join(' · ')) +
+      ' — 지금 체감 ' + T + '°C에 비해 ' + (T < 6 ? '얇아요' : '더워요') + '. 보완 아이템을 확인해 주세요.</p>'
+    ) : '';
+
+    var missingHtml = missing.length ? (
+      '<div class="missing-box"><p class="missing-title">🧺 보완 추천 아이템</p><ul>' +
+      missing.map(function(m){
+        return '<li><strong>' + esc(m.name) + '</strong> — <span>' + esc(m.why) + '</span></li>';
+      }).join('') + '</ul></div>'
+    ) : '';
+
+    return '<article class="look-card" data-index="' + idx + '" data-signature="' + esc(look.signature) + '">' +
+      '<div class="look-head">' +
+      '<span class="mood-badge">' + look.mood.emoji + ' ' + esc(look.mood.label) + '</span>' +
+      '<span class="look-temp">체감 ' + T + '°C</span>' +
+      '</div>' +
+      '<h3 class="look-title">' + esc(title) + '</h3>' +
+      '<p class="look-reason">' + esc(describeLook(items, look.mood, T)) + '</p>' +
+      warnHtml +
+      '<ul class="look-items">' + rows + '</ul>' +
+      missingHtml +
+      '<div class="look-foot">' +
+      '<button data-action="look-alt" data-index="' + idx + '">🔀 다른 코디</button>' +
+      '<button class="danger" data-action="look-dislike" data-index="' + idx + '">👎 이 코디 싫어요</button>' +
+      '</div></article>';
+  }).join('');
+
+  if (state.looks.length < 5) {
+    list.innerHTML += '<div class="notice-card" style="margin-top:12px"><p>무드가 겹치지 않는 코디를 <b>' + state.looks.length + '개</b>만 만들 수 있었어요. 옷장을 보완하면 5개까지 채워 드려요.</p>' +
+      '<div class="notice-foot"><button data-action="goto-closet">옷장 보기</button></div></div>';
+  }
+}
+
+function renderCloset(){
+  var wrap = $('#closetList');
+  var total = state.items.length;
+  var reviewCount = state.items.filter(needsReview).length;
+  $('#closetCount').textContent = '(' + total + '벌)';
+
+  /* 필터: 전체 / 검수 필요 */
+  var filters = '<div class="filter-row">' +
+    '<button class="chip' + (state.closetFilter === 'all' ? ' active' : '') + '" data-action="closet-filter" data-filter="all">전체 ' + total + '</button>' +
+    '<button class="chip' + (state.closetFilter === 'review' ? ' active' : '') + '" data-action="closet-filter" data-filter="review">검수 필요 ' + reviewCount + '</button>' +
+    '</div>';
+
+  if (!total) {
+    wrap.innerHTML = filters + '<div class="card empty-card"><span class="emoji">🧺</span>옷장이 비어 있어요.<br>구매 목록을 다시 불러오거나 옷을 등록해 주세요.</div>';
+    return;
+  }
+
+  var html = filters;
+  CATEGORIES.forEach(function(cat){
+    var items = state.items.filter(function(i){
+      return i.category === cat.key && (state.closetFilter !== 'review' || needsReview(i));
+    });
+    if (!items.length) return;
+    html += '<div class="closet-group"><h3>' + cat.label + ' · ' + items.length + '</h3>';
+    items.forEach(function(it){
+      var range = (it.tempMin == null || it.tempMax == null) ? '온도 미정' : it.tempMin + '~' + it.tempMax + '°C';
+      var estimated = (it.tempMin != null && it.tempSource && it.tempSource !== 'manual' && !(it.corrections && it.corrections.length)) ? ' (추정)' : '';
+      var corrected = (it.corrections && it.corrections.length) ? ' · 보정됨' : '';
+      var need = needsReview(it);
+      var meta = [it.colorName || '색상 미지정', it.materialKey ? matLabel(it) : '소재 미확인', range + estimated + corrected];
+      html += '<div class="closet-row' + (need ? ' needs-review' : '') + '">' +
+        '<span class="color-dot" style="background:' + esc(it.colorHex || '#e6e0d8') + '"></span>' +
+        '<div class="closet-main"><div class="closet-name">' + esc(it.name) + '</div>' +
+        '<div class="closet-meta">' + esc(meta.join(' · ')) +
+        (need ? '<span class="need-badge">검수 필요</span>' : '') +
+        '</div>' +
+        '</div>' +
+        '<div class="closet-actions">' +
+        '<button class="mini-btn" data-action="item-cold" data-id="' + esc(it.id) + '" aria-label="' + esc(it.name) + ' 지금 기온엔 추워요">🥶</button>' +
+        '<button class="mini-btn" data-action="item-hot" data-id="' + esc(it.id) + '" aria-label="' + esc(it.name) + ' 지금 기온엔 더워요">🥵</button>' +
+        '<button class="mini-btn" data-action="item-edit" data-id="' + esc(it.id) + '" aria-label="' + esc(it.name) + ' 수정">✏️</button>' +
+        '<button class="mini-btn danger" data-action="item-del" data-id="' + esc(it.id) + '" aria-label="' + esc(it.name) + ' 버린 옷 삭제" title="버린 옷 삭제">🗑</button>' +
+        '</div></div>';
+    });
+    html += '</div>';
+  });
+
+  if (state.closetFilter === 'review' && !state.items.some(needsReview)) {
+    html += '<div class="card empty-card"><span class="emoji">✅</span>검수할 옷이 없어요.</div>';
+  }
+  wrap.innerHTML = html;
+}
+
+function renderSettings(){
+  var list = $('#dislikeCard');
+  $('#dislikeCount').textContent = state.dislikes.length ? '(' + state.dislikes.length + ')' : '';
+
+  if (!state.dislikes.length) {
+    list.innerHTML = '<p class="hint" style="margin:0">아직 제외한 코디가 없어요. 코디 카드의 <b>👎 이 코디 싫어요</b>를 누르면 여기에 쌓입니다.</p>';
+  } else {
+    list.innerHTML = state.dislikes.slice().reverse().map(function(d){
+      var when = '';
+      try { when = new Date(d.at).toLocaleString('ko-KR', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' }); } catch (e) { when = ''; }
+      return '<div class="dislike-row">' +
+        '<div class="d-main"><b>' + esc(d.moodLabel || '코디') + '</b>' +
+        '<p>' + esc((d.names || []).join(' · ')) + '</p>' +
+        '<div class="when">' + esc(when) + ' 제외</div></div>' +
+        '<button class="secondary-btn" data-action="dislike-restore" data-id="' + esc(d.id) + '">복원</button>' +
+        '</div>';
+    }).join('');
+  }
+
+  var counts = { outer:0, top:0, bottom:0, dress:0, shoes:0, acc:0 };
+  state.items.forEach(function(i){ if (counts[i.category] != null) counts[i.category]++; });
+  $('#statGrid').innerHTML =
+    '<div class="stat"><b>' + state.items.length + '</b><span>옷</span></div>' +
+    '<div class="stat"><b>' + state.items.filter(needsReview).length + '</b><span>검수 필요</span></div>' +
+    '<div class="stat"><b>' + state.dislikes.length + '</b><span>제외 코디</span></div>';
+
+  $('#storageHint').textContent = Storage.available
+    ? '이 브라우저에 저장 중이에요. 앱을 닫아도 유지됩니다.'
+    : '브라우저 저장이 막혀 있어 이번 실행 동안만 유지돼요.';
+
+  var zig = state.items.filter(function(i){ return i.source === 'zigzag'; }).length;
+  var mus = state.items.filter(function(i){ return i.source === 'musinsa'; }).length;
+  var srcEl = $('#wardrobeSource');
+  if (srcEl) {
+    srcEl.innerHTML = '옷장 출처: 지그재그 <b>' + zig + '</b>벌 · 무신사 <b>' + mus + '</b>벌' +
+      '<br>지그재그·무신사 주문내역에서 구매확정만 모은 목록이에요(취소·반품 제외).';
+  }
+}
+
+function renderAll(){
+  renderTempControls();
+  renderVerifyNotice();
+  renderLooks();
+  renderCloset();
+  renderSettings();
+}
+
+/* ══════════════════════════════════════════════════════════════
+   10. 검수 시트
+   ══════════════════════════════════════════════════════════════ */
+function newDraft(){
+  return {
+    id: null,
+    name: '', category: '', colorName: '', colorHex: '',
+    materialKey: '', seasons: [], tempMin: null, tempMax: null,
+    moods: {}, formality: 3,
+    source: 'manual', previewUrl: '', notes: [], auto: {}, errors: {},
+    linkUrl: ''
+  };
+}
+
+function nearestColorByName(name){
+  var hex = colorHexOf(name);
+  if (!hex) return '';
+  return hex;
+}
+
+function renderSheet(){
+  var d = state.draft;
+  if (!d) return;
+  var isEdit = !!d.id;
+  $('#sheetTitle').textContent = isEdit ? '옷 정보 수정' : '옷 검수';
+
+  var err = d.errors || {};
+  var auto = d.auto || {};
+
+  var fieldTag = function(key){
+    if (auto[key]) return '<span class="auto-tag">자동 입력</span>';
+    return '<span class="need-tag">확인 필요</span>';
+  };
+
+  var previewHtml = d.previewUrl ? (
+    '<div class="draft-preview"><img src="' + esc(d.previewUrl) + '" alt="업로드한 사진 미리보기">' +
+    '<p>' + esc((d.notes || []).join(' ')) + '</p></div>'
+  ) : '';
+
+  var summaryHtml = !isEdit ? (
+    '<div class="auto-summary"><p>자동 입력 결과 — 확인·수정한 뒤 등록하세요</p><ul class="auto-chips">' +
+    [['name','이름'],['category','카테고리'],['colorName','색상'],['materialKey','소재'],['seasons','계절'],['temp','적정 온도']]
+      .map(function(pair){
+        var k = pair[0], label = pair[1];
+        return '<li class="' + (auto[k] ? 'ok' : 'warn') + '">' + label + ' · ' + (auto[k] ? '자동 입력' : '직접 입력') + '</li>';
+      }).join('') +
+    '</ul></div>'
+  ) : '';
+
+  var sourceHtml = '';
+  if (isEdit && d.sourceMeta) {
+    var m = d.sourceMeta;
+    var head = [m.brand, m.sourceLabel, m.orderDate ? m.orderDate + ' 구매' : ''].filter(Boolean).join(' · ');
+    var noteText = m.note ? (m.note.length > 150 ? m.note.slice(0, 150) + '…' : m.note) : '';
+    sourceHtml = '<div class="auto-summary">' +
+      '<p>' + esc(head) + '</p>' +
+      (m.option ? '<p style="font-weight:500;color:#7b736a">옵션: ' + esc(m.option) + '</p>' : '') +
+      (m.materialRaw
+        ? '<p style="font-weight:500;color:#7b736a">소재 표기: ' + esc(m.materialRaw) + '</p>'
+        : '<p style="font-weight:500;color:#a06a1f">소재 표기: 상품 정보에 없음</p>') +
+      (noteText ? '<p style="font-weight:500;color:#7b736a;margin-top:6px;line-height:1.5">' + esc(noteText) + '</p>' : '') +
+      (m.link ? '<p style="margin-top:7px"><a href="' + esc(m.link) + '" target="_blank" rel="noopener" style="font-size:11.5px;color:var(--accent);font-weight:700">상품 페이지 열기 ›</a></p>' : '') +
+      (function(){
+        var chips = '';
+        if (!d.materialKey) chips += '<li class="warn" data-sheet-action="jump" data-target="fMaterial">소재 확인 필요 ›</li>';
+        if (!d.seasons.length) chips += '<li class="warn" data-sheet-action="jump" data-target="fSeasons">계절 확인 필요 ›</li>';
+        if (d.tempMin == null || d.tempMax == null) chips += '<li class="warn" data-sheet-action="jump" data-target="fTempMin">온도 확인 필요 ›</li>';
+        return chips ? '<ul class="auto-chips" style="margin-top:9px">' + chips + '</ul>' : '';
+      })() +
+      '</div>';
+  }
+
+  var colorSwatches = COLOR_TABLE.map(function(c){
+    var active = (d.colorName === c.name);
+    return '<button type="button" class="swatch' + (active ? ' active' : '') + '" data-sheet-action="color" data-name="' + esc(c.name) + '" data-hex="' + esc(c.hex) + '" style="background:' + esc(c.hex) + '" aria-label="' + esc(c.name) + '"></button>';
+  }).join('');
+
+  var seasonChips = SEASONS.map(function(s){
+    var active = d.seasons.indexOf(s) >= 0;
+    return '<button type="button" class="' + (active ? 'active' : '') + '" data-sheet-action="season" data-season="' + esc(s) + '">' + esc(s) + '</button>';
+  }).join('');
+
+  var moodChips = MOODS.map(function(m){
+    var active = !!(d.moods && d.moods[m.key]);
+    return '<button type="button" class="' + (active ? 'active' : '') + '" data-sheet-action="mood" data-mood="' + esc(m.key) + '">' + m.emoji + ' ' + esc(m.label) + '</button>';
+  }).join('');
+
+  var catOptions = '<option value="">선택하세요</option>' + CATEGORIES.map(function(c){
+    return '<option value="' + esc(c.key) + '"' + (d.category === c.key ? ' selected' : '') + '>' + esc(c.label) + '</option>';
+  }).join('');
+
+  var matOptions = '<option value="">선택하세요</option>' + MATERIALS.map(function(m){
+    return '<option value="' + esc(m.key) + '"' + (d.materialKey === m.key ? ' selected' : '') + '>' + esc(m.label) + '</option>';
+  }).join('');
+
+  $('#sheetBody').innerHTML =
+    previewHtml +
+    sourceHtml +
+    summaryHtml +
+    '<div class="field" data-field="name">' +
+      '<label>이름 ' + fieldTag('name') + '</label>' +
+      '<input class="input' + (err.name ? ' invalid' : '') + '" id="fName" type="text" placeholder="예: 캐시미어 블렌드 코트" value="' + esc(d.name) + '">' +
+      (err.name ? '<p class="err-msg">' + esc(err.name) + '</p>' : '') +
+    '</div>' +
+    '<div class="field" data-field="category">' +
+      '<label>카테고리 ' + fieldTag('category') + '</label>' +
+      '<select class="input' + (err.category ? ' invalid' : '') + '" id="fCategory">' + catOptions + '</select>' +
+      (err.category ? '<p class="err-msg">' + esc(err.category) + '</p>' : '') +
+    '</div>' +
+    '<div class="field" data-field="color">' +
+      '<label>색상 ' + fieldTag('colorName') + '</label>' +
+      '<div class="swatches">' + colorSwatches + '</div>' +
+      '<div class="input-row" style="margin-top:10px">' +
+        '<input class="input' + (err.colorName ? ' invalid' : '') + '" id="fColorName" type="text" placeholder="직접 입력 (예: 카멜)" value="' + esc(d.colorName) + '">' +
+        '<span class="color-dot" id="colorPreview" style="width:44px;height:44px;border-radius:12px;background:' + esc(d.colorHex || '#eee') + '"></span>' +
+      '</div>' +
+      (err.colorName ? '<p class="err-msg">' + esc(err.colorName) + '</p>' : '') +
+    '</div>' +
+    '<div class="field" data-field="material">' +
+      '<label>소재 ' + fieldTag('materialKey') + '</label>' +
+      '<select class="input' + (err.materialKey ? ' invalid' : '') + '" id="fMaterial">' + matOptions + '</select>' +
+      (err.materialKey ? '<p class="err-msg">' + esc(err.materialKey) + '</p>' : '') +
+    '</div>' +
+    '<div class="field" data-field="seasons">' +
+      '<label>계절감 ' + fieldTag('seasons') + '</label>' +
+      '<div class="multi-chips" id="fSeasons">' + seasonChips + '</div>' +
+      (err.seasons ? '<p class="err-msg">' + esc(err.seasons) + '</p>' : '') +
+    '</div>' +
+    '<div class="field" data-field="temp">' +
+      '<label>적정 온도 ' + fieldTag('temp') + '</label>' +
+      '<div class="range-row">' +
+        '<input class="input' + (err.temp ? ' invalid' : '') + '" id="fTempMin" type="number" inputmode="numeric" step="1" min="-30" max="45" placeholder="최저" value="' + (d.tempMin == null ? '' : d.tempMin) + '">' +
+        '<span>~</span>' +
+        '<input class="input' + (err.temp ? ' invalid' : '') + '" id="fTempMax" type="number" inputmode="numeric" step="1" min="-30" max="45" placeholder="최고" value="' + (d.tempMax == null ? '' : d.tempMax) + '">' +
+        '<span>°C</span>' +
+      '</div>' +
+      '<div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
+        '<button type="button" class="secondary-btn" data-sheet-action="estimate">소재·카테고리로 추정</button>' +
+        '<span class="hint" style="margin:0">추정값은 확인 후 저장돼요</span>' +
+      '</div>' +
+      (err.temp ? '<p class="err-msg">' + esc(err.temp) + '</p>' : '') +
+    '</div>' +
+    '<div class="field" data-field="moods">' +
+      '<label>어울리는 무드 <span style="font-weight:500;color:var(--sub);font-size:11px">(선택)</span></label>' +
+      '<div class="multi-chips" id="fMoods">' + moodChips + '</div>' +
+    '</div>' +
+    '<div class="field" data-field="formality">' +
+      '<label>격식 <span style="font-weight:500;color:var(--sub);font-size:11px">(1 편안 ~ 5 격식)</span></label>' +
+      '<div class="segmented" id="fFormality">' +
+        [1,2,3,4,5].map(function(n){
+          return '<button type="button" class="' + (Number(d.formality) === n ? 'active' : '') + '" data-sheet-action="formality" data-value="' + n + '">' + n + '</button>';
+        }).join('') +
+      '</div>' +
+    '</div>';
+
+  $('#sheetFoot').innerHTML =
+    '<p class="note">' + (isEdit ? '수정한 내용은 바로 옷장에 반영돼요.' : '검수를 마쳐야 내 옷장에 등록돼요.') + '</p>' +
+    (isEdit ? '<button class="secondary-btn" id="sheetDelete" style="width:100%;color:var(--danger);margin-bottom:8px">🗑 이 옷 삭제 (버린 옷)</button>' : '') +
+    '<button class="primary-btn" id="sheetSave">' + (isEdit ? '수정 저장' : '검수 확인 후 등록') + '</button>';
+
+  $('#sheetSave').addEventListener('click', saveDraft);
+  var delBtn = $('#sheetDelete');
+  if (delBtn) delBtn.addEventListener('click', function(){
+    var id = state.draft ? state.draft.id : null;
+    if (!id) return;
+    closeSheet();
+    setTimeout(function(){ deleteItem(id); }, 240);
+  });
+}
+
+function openReviewSheet(draft){
+  state.draft = draft;
+  var backdrop = $('#sheetBackdrop');
+  backdrop.hidden = false;
+  renderSheet();
+  raf(function(){ backdrop.classList.add('open'); });
+}
+
+function closeSheet(){
+  var backdrop = $('#sheetBackdrop');
+  backdrop.classList.remove('open');
+  setTimeout(function(){ if (!backdrop.classList.contains('open')) backdrop.hidden = true; }, 220);
+  state.draft = null;
+}
+
+function syncDraftFromForm(){
+  var d = state.draft;
+  if (!d) return;
+  var nameEl = $('#fName');
+  if (nameEl) d.name = nameEl.value.trim();
+  var catEl = $('#fCategory');
+  if (catEl) d.category = catEl.value;
+  var colorEl = $('#fColorName');
+  if (colorEl) {
+    d.colorName = colorEl.value.trim();
+    d.colorHex = colorHexOf(d.colorName) || d.colorHex;
+  }
+  var matEl = $('#fMaterial');
+  if (matEl) d.materialKey = matEl.value;
+  var minEl = $('#fTempMin'), maxEl = $('#fTempMax');
+  if (minEl) d.tempMin = minEl.value === '' ? null : Math.round(Number(minEl.value));
+  if (maxEl) d.tempMax = maxEl.value === '' ? null : Math.round(Number(maxEl.value));
+}
+
+function validateDraft(d){
+  var errors = {};
+  if (!d.name) errors.name = '이름을 입력해 주세요.';
+  if (!d.category) errors.category = '카테고리를 골라 주세요.';
+  if (!d.colorName) errors.colorName = '색상을 골라 주세요.';
+  if (!d.materialKey) errors.materialKey = '소재를 골라 주세요.';
+  if (!d.seasons.length) errors.seasons = '계절감을 하나 이상 골라 주세요.';
+  if (d.tempMin == null || d.tempMax == null || !isFinite(d.tempMin) || !isFinite(d.tempMax)) {
+    errors.temp = '적정 온도 최저·최고를 모두 입력해 주세요.';
+  } else if (d.tempMin >= d.tempMax) {
+    errors.temp = '최저 온도는 최고 온도보다 낮아야 해요.';
+  }
+  return errors;
+}
+
+function saveDraft(){
+  syncDraftFromForm();
+  var d = state.draft;
+  var errors = validateDraft(d);
+  d.errors = errors;
+  if (Object.keys(errors).length) {
+    renderSheet();
+    toast('확인이 필요한 항목이 있어요');
+    return;
+  }
+  var now = new Date().toISOString();
+  if (d.id) {
+    var idx = -1;
+    for (var i = 0; i < state.items.length; i++) if (state.items[i].id === d.id) idx = i;
+    if (idx >= 0) {
+      state.items[idx] = normalizeItem(Object.assign({}, state.items[idx], {
+        name:d.name, category:d.category, colorName:d.colorName, colorHex:d.colorHex,
+        materialKey:d.materialKey, seasons:d.seasons.slice(),
+        tempMin:d.tempMin, tempMax:d.tempMax, tempSource:'manual',
+        moods:d.moods, formality:d.formality,
+        updatedAt:now
+      }));
+    }
+    toast('옷 정보를 수정했어요');
+  } else {
+    state.items.push(normalizeItem({
+      id: uid('it'), name:d.name, category:d.category, colorName:d.colorName, colorHex:d.colorHex,
+      materialKey:d.materialKey, seasons:d.seasons.slice(),
+      tempMin:d.tempMin, tempMax:d.tempMax, tempSource:'manual',
+      moods:d.moods, formality:d.formality,
+      source:d.source || 'manual', note:(d.notes || []).join(' '),
+      createdAt:now, updatedAt:now
+    }));
+    toast('검수 완료 · 옷장에 등록했어요');
+  }
+  persist();
+  closeSheet();
+  recomputeLooks();
+  renderAll();
+}
+
+/* ── 시트 내부 이벤트 ── */
+function onSheetClick(e){
+  var btn = e.target.closest('[data-sheet-action]');
+  if (!btn) return;
+  var d = state.draft;
+  if (!d) return;
+  var act = btn.getAttribute('data-sheet-action');
+
+  if (act === 'color') {
+    d.colorName = btn.getAttribute('data-name');
+    d.colorHex = btn.getAttribute('data-hex');
+    d.auto.colorName = true;
+    renderSheet();
+  } else if (act === 'season') {
+    var s = btn.getAttribute('data-season');
+    var i = d.seasons.indexOf(s);
+    if (i >= 0) d.seasons.splice(i, 1); else d.seasons.push(s);
+    renderSheet();
+  } else if (act === 'mood') {
+    var mk = btn.getAttribute('data-mood');
+    if (d.moods[mk]) delete d.moods[mk]; else d.moods[mk] = 3;
+    renderSheet();
+  } else if (act === 'formality') {
+    d.formality = Number(btn.getAttribute('data-value'));
+    renderSheet();
+  } else if (act === 'jump') {
+    var id = btn.getAttribute('data-target');
+    var el = id ? document.getElementById(id) : null;
+    if (el && el.scrollIntoView) { try { el.scrollIntoView({ block:'center', behavior:'smooth' }); } catch (e) {} }
+    if (el && el.focus) { try { el.focus({ preventScroll:true }); } catch (e2) {} }
+  } else if (act === 'estimate') {
+    syncDraftFromForm();
+    var hint = estimateTemp(d.category, d.materialKey);
+    if (!hint) { toast('카테고리와 소재를 먼저 골라 주세요'); return; }
+    d.tempMin = hint[0];
+    d.tempMax = hint[1];
+    d.auto.temp = true;
+    renderSheet();
+    toast('추정값 ' + hint[0] + '~' + hint[1] + '°C를 채웠어요. 확인해 주세요');
+  }
+}
+
+function estimateTemp(category, materialKey){
+  if (!category || !materialKey) return null;
+  var table = TEMP_HINTS[category];
+  if (!table) return null;
+  var range = table[materialKey] || table.etc || [-5, 20];
+  return [range[0], range[1]];
+}
+
+/* ══════════════════════════════════════════════════════════════
+   11. 등록 흐름
+   ══════════════════════════════════════════════════════════════ */
+function draftFromMeta(res, url){
+  var f = res.fields || {};
+  var d = newDraft();
+  d.source = 'link';
+  d.linkUrl = url;
+  d.name = f.name || '';
+  d.category = f.category || '';
+  d.colorName = f.colorName || '';
+  d.colorHex = f.colorHex || colorHexOf(f.colorName) || '';
+  d.materialKey = f.materialKey || '';
+  d.seasons = Array.isArray(f.seasons) ? f.seasons.slice() : [];
+  d.tempMin = (f.tempMin == null ? null : f.tempMin);
+  d.tempMax = (f.tempMax == null ? null : f.tempMax);
+  d.moods = f.moods || {};
+  d.formality = f.formality || 3;
+  d.auto = {
+    name: !!f.name, category: !!f.category, colorName: !!f.colorName,
+    materialKey: !!f.materialKey, seasons: !!(f.seasons && f.seasons.length),
+    temp: (f.tempMin != null && f.tempMax != null)
+  };
+  d.notes = res.source === 'fixture'
+    ? ['샘플 상품 데이터에서 읽었어요. (프로토타입)']
+    : ['링크 주소의 단어·패턴으로 추정했어요. 빈 항목은 직접 채워 주세요.'];
+  return d;
+}
+
+function loadFromLink(url){
+  if (!url) { toast('링크를 입력해 주세요'); return Promise.resolve(false); }
+  if (!/^https?:\/\//i.test(url)) { toast('http:// 또는 https:// 로 시작하는 링크를 넣어 주세요'); return Promise.resolve(false); }
+  var btn = $('#linkLoadBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '읽는 중…'; }
+  return Providers.productMeta.resolve(url).then(function(res){
+    openReviewSheet(draftFromMeta(res, url));
+    return true;
+  }).catch(function(){
+    toast('링크를 읽지 못했어요. 직접 입력해 주세요.');
+    return false;
+  }).then(function(v){
+    if (btn) { btn.disabled = false; btn.textContent = '불러오기'; }
+    return v;
+  });
+}
+
+function handlePhotoFile(file){
+  if (!file) return Promise.resolve(false);
+  if (!/^image\//.test(file.type || '') && !/\.(jpe?g|png|heic|webp|gif)$/i.test(file.name || '')) {
+    toast('이미지 파일을 골라 주세요');
+    return Promise.resolve(false);
+  }
+  toast('사진을 분석하는 중…');
+  return Providers.vision.analyze(file).then(function(res){
+    var d = newDraft();
+    d.source = 'photo';
+    d.name = '';
+    d.category = '';
+    d.colorName = (res.fields && res.fields.colorName) || '';
+    d.colorHex = (res.fields && res.fields.colorHex) || '';
+    d.materialKey = '';
+    d.seasons = [];
+    d.tempMin = null;
+    d.tempMax = null;
+    d.previewUrl = res.previewUrl || '';
+    d.notes = res.notes || [];
+    d.auto = { name:false, category:false, colorName:!!d.colorName, materialKey:false, seasons:false, temp:false };
+    openReviewSheet(d);
+    return true;
+  }).catch(function(){
+    toast('사진을 읽지 못했어요. 다시 시도해 주세요.');
+    return false;
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   12. 탭 · 이벤트
+   ══════════════════════════════════════════════════════════════ */
+function switchTab(name){
+  state.activeTab = name;
+  $$('.view').forEach(function(v){ v.classList.add('hidden'); });
+  var view = $('#view-' + name);
+  if (view) view.classList.remove('hidden');
+  $$('.tab-btn').forEach(function(b){
+    b.classList.toggle('active', b.getAttribute('data-tab') === name);
+  });
+  if (name === 'add') setAddMode(state.addMode);
+  window.scrollTo(0, 0);
+}
+
+function setAddMode(mode){
+  state.addMode = mode;
+  $$('#addTabs button').forEach(function(b){
+    b.classList.toggle('active', b.getAttribute('data-mode') === mode);
+  });
+  $('#paneLink').classList.toggle('hidden', mode !== 'link');
+  $('#panePhoto').classList.toggle('hidden', mode !== 'photo');
+}
+
+function dislikeLook(index){
+  var look = state.looks[index];
+  if (!look) return false;
+  var record = {
+    id: uid('dl'),
+    signature: look.signature,
+    moodKey: look.moodKey,
+    moodLabel: look.mood.label,
+    itemIds: look.items.map(function(i){ return i.id; }),
+    names: look.items.map(function(i){ return i.name; }),
+    at: new Date().toISOString()
+  };
+  state.dislikes.push(record);
+  persist();
+  recomputeLooks();
+  renderAll();
+  toast('이 코디는 다시 추천하지 않을게요. 새 코디로 바꿨어요.');
+  return record;
+}
+
+function cycleLook(index){
+  var look = state.looks[index];
+  if (!look || !look.candidates || look.candidates.length < 2) { toast('이 무드에서 다른 조합을 찾지 못했어요'); return false; }
+  var used = {};
+  state.looks.forEach(function(l, i){ if (i !== index) used[l.signature] = 1; });
+  var start = look.candidateIndex || 0;
+  for (var step = 1; step <= look.candidates.length; step++) {
+    var idx = (start + step) % look.candidates.length;
+    var cand = look.candidates[idx];
+    if (used[cand.signature] || isDisliked(cand.signature)) continue;
+    look.signature = cand.signature;
+    look.items = cand.items;
+    look.candidateIndex = idx;
+    renderLooks();
+    return true;
+  }
+  toast('다른 조합을 찾지 못했어요');
+  return false;
+}
+
+function deleteItem(id){
+  var idx = -1;
+  for (var i = 0; i < state.items.length; i++) if (state.items[i].id === id) idx = i;
+  if (idx < 0) return false;
+  var item = state.items[idx];
+  state.items.splice(idx, 1);
+  state.lastDeleted = { item: item, index: idx };
+  persist();
+  recomputeLooks();
+  renderAll();
+  toast('"' + item.name + '" 삭제했어요', '되돌리기', function(){
+    var d = state.lastDeleted;
+    if (!d) return;
+    state.items.splice(Math.min(d.index, state.items.length), 0, d.item);
+    state.lastDeleted = null;
+    persist();
+    recomputeLooks();
+    renderAll();
+    toast('다시 옷장에 넣었어요');
+  });
+  return true;
+}
+
+function renderVerifyNotice(){
+  var host = $('#verifyNotice');
+  if (!host) return;
+  var review = state.items.filter(needsReview);
+  if (!review.length || !state.items.length) { host.innerHTML = ''; return; }
+  var noTemp = review.filter(function(i){ return i.tempMin == null || i.tempMax == null; }).length;
+  host.innerHTML = '<div class="notice-card">' +
+    '<p><b>정보 보완이 필요한 옷 ' + review.length + '벌</b> — ' +
+    (noTemp ? '그중 ' + noTemp + '벌은 소재·계절이 비어 적정 온도를 몰라 추천에서 빠져 있어요. ' : '') +
+    '소재만 채워도 추천 대상이 됩니다.</p>' +
+    '<div class="notice-foot"><button data-action="goto-verify">검수하러 가기</button>' +
+    '<span style="font-size:11px;color:#8a6a3a">옷장 › 검수 필요</span></div></div>';
+}
+
+function resetWardrobe(){
+  if (!window.confirm('구매 목록 35벌로 되돌릴까요? 검수·수정한 내용과 삭제 기록이 사라져요.')) return;
+  state.items = buildWardrobe();
+  state.closetFilter = 'all';
+  persist();
+  recomputeLooks();
+  renderAll();
+  toast('구매 목록 35벌을 다시 불러왔어요');
+}
+
+function resetAll(){
+  if (!window.confirm('옷장·제외 코디·체감 설정을 모두 처음 상태로 되돌릴까요?')) return;
+  state.items = buildWardrobe();
+  state.dislikes = [];
+  state.settings = Object.assign({}, DEFAULT_SETTINGS);
+  persist();
+  recomputeLooks();
+  renderAll();
+  toast('전체 초기화했어요');
+}
+
+function exportData(){
+  var payload = {
+    schemaVersion: SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    settings: state.settings,
+    items: state.items,
+    dislikes: state.dislikes
+  };
+  var text = JSON.stringify(payload, null, 2);
+  var done = function(){ toast('데이터를 복사했어요 (' + state.items.length + '벌)'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(function(){ fallback(); });
+  } else {
+    fallback();
+  }
+  function fallback(){
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) { toast('복사하지 못했어요'); }
+    document.body.removeChild(ta);
+  }
+}
+
+function bindEvents(){
+  document.addEventListener('click', function(e){
+    var tabBtn = e.target.closest('[data-tab]');
+    if (tabBtn) { switchTab(tabBtn.getAttribute('data-tab')); return; }
+
+    var el = e.target.closest('[data-action]');
+    if (!el) return;
+    var act = el.getAttribute('data-action');
+
+    if (act === 'quick-temp') {
+      state.settings.baseTemp = Number(el.getAttribute('data-temp'));
+      persist();
+      renderTempControls();
+      recomputeLooks();
+      renderLooks();
+    } else if (act === 'sensitivity') {
+      state.settings.sensitivity = Number(el.getAttribute('data-value'));
+      persist();
+      renderTempControls();
+      recomputeLooks();
+      renderLooks();
+    } else if (act === 'item-cold') {
+      correctItemTemp(el.getAttribute('data-id'), 'cold');
+    } else if (act === 'item-hot') {
+      correctItemTemp(el.getAttribute('data-id'), 'hot');
+    } else if (act === 'look-dislike') {
+      dislikeLook(Number(el.getAttribute('data-index')));
+    } else if (act === 'look-alt') {
+      cycleLook(Number(el.getAttribute('data-index')));
+    } else if (act === 'item-edit') {
+      var it = state.items.filter(function(i){ return i.id === el.getAttribute('data-id'); })[0];
+      if (it) {
+        var d = newDraft();
+        d.id = it.id;
+        d.name = it.name; d.category = it.category;
+        d.colorName = it.colorName; d.colorHex = it.colorHex || colorHexOf(it.colorName);
+        d.materialKey = it.materialKey;
+        d.seasons = (it.seasons || []).slice();
+        d.tempMin = it.tempMin; d.tempMax = it.tempMax;
+        d.moods = Object.assign({}, it.moods);
+        d.formality = it.formality || 3;
+        d.auto = {
+          name: true,
+          category: !!it.category,
+          colorName: !!it.colorName,
+          materialKey: !!it.materialKey,
+          seasons: !!(it.seasons && it.seasons.length),
+          temp: it.tempMin != null && it.tempMax != null
+        };
+        d.sourceMeta = {
+          brand: it.brand || '', option: it.option || '', materialRaw: it.materialRaw || '',
+          note: it.note || '', link: it.link || '', orderDate: it.orderDate || '', sourceLabel: it.sourceLabel || ''
+        };
+        openReviewSheet(d);
+      }
+    } else if (act === 'item-del') {
+      deleteItem(el.getAttribute('data-id'));
+    } else if (act === 'closet-filter') {
+      state.closetFilter = el.getAttribute('data-filter') || 'all';
+      renderCloset();
+    } else if (act === 'goto-verify') {
+      state.closetFilter = 'review';
+      switchTab('closet');
+      renderCloset();
+    } else if (act === 'goto-closet') {
+      state.closetFilter = 'all';
+      switchTab('closet');
+      renderCloset();
+    } else if (act === 'dislike-restore') {
+      var id = el.getAttribute('data-id');
+      state.dislikes = state.dislikes.filter(function(d){ return d.id !== id; });
+      persist();
+      recomputeLooks();
+      renderAll();
+      toast('제외 목록에서 복원했어요');
+    }
+  });
+
+  $('#tempSlider').addEventListener('input', function(e){
+    state.settings.baseTemp = Number(e.target.value);
+    $('#baseTempLabel').textContent = state.settings.baseTemp;
+    $('#effectiveTempLabel').textContent = effectiveTemp();
+    persist();
+    recomputeLooks();
+    renderLooks();
+    renderTempControls();
+  });
+
+  $('#refreshBtn').addEventListener('click', function(){
+    recomputeLooks();
+    renderLooks();
+    toast('새로 추천했어요');
+  });
+
+  $('#addTabs').addEventListener('click', function(e){
+    var btn = e.target.closest('[data-mode]');
+    if (btn) setAddMode(btn.getAttribute('data-mode'));
+  });
+
+  $('#linkLoadBtn').addEventListener('click', function(){
+    loadFromLink($('#linkInput').value.trim());
+  });
+
+  $('#linkInput').addEventListener('keydown', function(e){
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      loadFromLink($('#linkInput').value.trim());
+    }
+  });
+
+  $('#sampleList').addEventListener('click', function(e){
+    var btn = e.target.closest('[data-url]');
+    if (!btn) return;
+    $('#linkInput').value = btn.getAttribute('data-url');
+    loadFromLink(btn.getAttribute('data-url'));
+  });
+
+  $('#photoPickBtn').addEventListener('click', function(){ $('#photoInput').click(); });
+  $('#photoInput').addEventListener('change', function(e){
+    var file = e.target.files && e.target.files[0];
+    if (file) handlePhotoFile(file);
+  });
+
+  $('#closetResetBtn').addEventListener('click', resetWardrobe);
+  $('#closetAddBtn').addEventListener('click', function(){ switchTab('add'); });
+  $('#resetWardrobeBtn').addEventListener('click', resetWardrobe);
+  $('#resetAllBtn').addEventListener('click', resetAll);
+  $('#exportBtn').addEventListener('click', exportData);
+  $('#dislikeClearBtn').addEventListener('click', function(){
+    if (!state.dislikes.length) { toast('제외한 코디가 없어요'); return; }
+    state.dislikes = [];
+    persist();
+    recomputeLooks();
+    renderAll();
+    toast('제외 목록을 모두 해제했어요');
+  });
+
+  $('#sheetClose').addEventListener('click', closeSheet);
+  $('#sheetBackdrop').addEventListener('click', function(e){
+    if (e.target === $('#sheetBackdrop')) closeSheet();
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && !$('#sheetBackdrop').hidden) closeSheet();
+  });
+
+  $('#sheetBody').addEventListener('click', onSheetClick);
+  $('#sheetBody').addEventListener('input', function(e){
+    var d = state.draft;
+    if (!d) return;
+    if (e.target.id === 'fColorName') {
+      var hex = colorHexOf(e.target.value.trim());
+      if (hex) {
+        d.colorHex = hex;
+        var dot = $('#colorPreview');
+        if (dot) dot.style.background = hex;
+      }
+    }
+  });
+  $('#sheetBody').addEventListener('change', function(e){
+    syncDraftFromForm();
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   13. 초기화
+   ══════════════════════════════════════════════════════════════ */
+function boot(){
+  loadState();
+  renderToday();
+  $('#appVersion').textContent = APP_VERSION;
+
+  $('#sampleList').innerHTML = SAMPLE_LINKS.map(function(s){
+    return '<button class="sample-item" data-url="' + esc(s.url) + '">' +
+      '<span class="s-main"><b>' + esc(s.label) + '</b><small>' + esc(s.desc) + '</small></span>' +
+      '<span class="arrow">›</span></button>';
+  }).join('');
+
+  bindEvents();
+  recomputeLooks();
+  renderAll();
+  switchTab('recommend');
+
+  window.WardrobeApp = {
+    version: APP_VERSION,
+    state: state,
+    settings: state.settings,
+    parseUrl: parseUrl,
+    providers: Providers,
+    recomputeLooks: recomputeLooks,
+    correctItemTemp: correctItemTemp,
+    dislikeLook: dislikeLook,
+    cycleLook: cycleLook,
+    loadFromLink: loadFromLink,
+    handlePhotoFile: handlePhotoFile,
+    openReviewSheet: openReviewSheet,
+    saveDraft: saveDraft,
+    closeSheet: closeSheet,
+    switchTab: switchTab,
+    setAddMode: setAddMode,
+    exportPayload: function(){
+      return { schemaVersion:SCHEMA_VERSION, settings:state.settings, items:state.items, dislikes:state.dislikes };
+    },
+    itemById: function(id){ return state.items.filter(function(i){ return i.id === id; })[0] || null; },
+    looks: function(){ return state.looks; },
+    storageMode: function(){ return Storage.available ? 'localStorage' : 'memory'; },
+    effectiveTemp: effectiveTemp,
+    sampleLinks: SAMPLE_LINKS,
+    colors: COLOR_TABLE,
+    materials: MATERIALS,
+    moods: MOODS
+  };
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
+}
+
+})();
+</script>
+</body>
+</html>
