@@ -307,6 +307,20 @@
     font-size:11.5px; font-weight:800; color:var(--sub); letter-spacing:.02em;
     margin:0 4px 7px;
   }
+  /* 카테고리 접기·펼치기 헤더 */
+  .closet-head{
+    display:flex; align-items:center; gap:5px; width:100%;
+    padding:9px 11px; margin:0 0 8px; border-radius:12px;
+    background:#f7f3ec; border:1px solid var(--line); color:var(--accent-ink);
+    font:inherit; text-align:left; -webkit-appearance:none;
+  }
+  .closet-head:active{ background:#ece3d8; }
+  .closet-head .ch-label{ font-size:12px; font-weight:800; letter-spacing:.01em; }
+  .closet-head .ch-count{ font-size:11px; font-weight:800; color:#a9a099; letter-spacing:-.2px; }
+  .closet-head .ch-arrow{ margin-left:auto; font-size:10px; line-height:1; color:var(--sub); }
+  .closet-group.collapsed .closet-head{ margin-bottom:0; }
+  .closet-group.collapsed .closet-grid{ display:none; }
+  .filter-row .chip.toggle{ margin-left:auto; font-weight:800; }
   /* 종류별 3열 격자 */
   .closet-grid{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; }
   .closet-tile{ position:relative; min-width:0; }
@@ -763,7 +777,7 @@
 /* ══════════════════════════════════════════════════════════════
    0. 상수 · 스키마
    ══════════════════════════════════════════════════════════════ */
-var APP_VERSION = '1.4.3';  /* 1.4.3: 코디 5개 = 무난(데일리) 2~3 + 실험적/핀터 색조합 2~3, 카드에 배지 + 색조합 한 줄, 새로 추천 시 조합 변화 */
+var APP_VERSION = '1.4.4';  /* 1.4.4: 옷장 카테고리 접기·펼치기(아코디언) + 모두 접기/펼치기 · 1.4.3: 코디 5개 = 무난(데일리) 2~3 + 실험적/핀터 색조합 2~3, 카드에 배지 + 색조합 한 줄, 새로 추천 시 조합 변화 */
 var SCHEMA_VERSION = 4;
 var STORAGE_KEY = 'wardrobeApp.v1';
 
@@ -1482,6 +1496,7 @@ var state = {
   activeTab: 'recommend',
   addMode: 'link',
   closetFilter: 'all',
+  closetCollapsed: {},
   lastDeleted: null
 };
 
@@ -3631,16 +3646,59 @@ function onLookScroll(){
   lookScrollTimer = setTimeout(function(){ updateLookIndicator(); }, 90);
 }
 
+/* ── 카테고리 접기·펼치기 (접힘 상태는 localStorage에 유지) ── */
+var CLOSET_COLLAPSE_KEY = STORAGE_KEY + '.closetCollapsed';
+
+function loadClosetCollapsed(){
+  var out = {};
+  try {
+    var obj = JSON.parse(Storage.get(CLOSET_COLLAPSE_KEY) || '{}');
+    if (obj && typeof obj === 'object') {
+      Object.keys(obj).forEach(function(k){ if (obj[k] === true) out[k] = true; });
+    }
+  } catch (e) {}
+  return out;
+}
+
+function saveClosetCollapsed(map){
+  try { Storage.set(CLOSET_COLLAPSE_KEY, JSON.stringify(map || {})); } catch (e) {}
+}
+
+function clearClosetCollapsed(){
+  state.closetCollapsed = {};
+  saveClosetCollapsed(state.closetCollapsed);
+}
+
+function isClosetCollapsed(key){
+  return !!(state.closetCollapsed && state.closetCollapsed[key] === true);
+}
+
+/* 지금 필터에서 실제로 보이는 카테고리만 (옷이 없는 카테고리는 제외) */
+function closetGroups(){
+  return CATEGORIES.map(function(cat){
+    return {
+      cat: cat,
+      items: state.items.filter(function(i){
+        return i.category === cat.key && (state.closetFilter !== 'review' || needsReview(i));
+      })
+    };
+  }).filter(function(g){ return g.items.length; });
+}
+
 function renderCloset(){
   var wrap = $('#closetList');
   var total = state.items.length;
   var reviewCount = state.items.filter(needsReview).length;
   $('#closetCount').textContent = '(' + total + '벌)';
 
-  /* 필터: 전체 / 검수 필요 */
+  var groups = closetGroups();
+  var allClosed = groups.length > 0 && groups.every(function(g){ return isClosetCollapsed(g.cat.key); });
+
+  /* 필터: 전체 / 검수 필요 + 모두 접기·펼치기 */
   var filters = '<div class="filter-row">' +
     '<button class="chip' + (state.closetFilter === 'all' ? ' active' : '') + '" data-action="closet-filter" data-filter="all">전체 ' + total + '</button>' +
     '<button class="chip' + (state.closetFilter === 'review' ? ' active' : '') + '" data-action="closet-filter" data-filter="review">검수 필요 ' + reviewCount + '</button>' +
+    (groups.length ? '<button class="chip toggle" data-action="closet-toggle-all" aria-label="' + (allClosed ? '모든 카테고리 펼치기' : '모든 카테고리 접기') + '">' + (allClosed ? '▸ 모두 펼치기' : '▾ 모두 접기') + '</button>' : '') +
     '</div>';
 
   if (!total) {
@@ -3649,12 +3707,18 @@ function renderCloset(){
   }
 
   var html = filters;
-  CATEGORIES.forEach(function(cat){
-    var items = state.items.filter(function(i){
-      return i.category === cat.key && (state.closetFilter !== 'review' || needsReview(i));
-    });
-    if (!items.length) return;
-    html += '<div class="closet-group"><h3>' + cat.label + ' · ' + items.length + '</h3><div class="closet-grid">';
+  groups.forEach(function(g){
+    var cat = g.cat, items = g.items;
+    var closed = isClosetCollapsed(cat.key);
+    html += '<div class="closet-group' + (closed ? ' collapsed' : '') + '">' +
+      '<button class="closet-head" data-action="closet-toggle" data-cat="' + cat.key + '"' +
+      ' aria-expanded="' + (closed ? 'false' : 'true') + '" aria-controls="closetGrid-' + cat.key + '"' +
+      ' aria-label="' + cat.label + ' ' + items.length + '벌 ' + (closed ? '펼치기' : '접기') + '">' +
+      '<span class="ch-label">' + cat.label + '</span>' +
+      '<span class="ch-count">· ' + items.length + '</span>' +
+      '<span class="ch-arrow" aria-hidden="true">' + (closed ? '▸' : '▾') + '</span>' +
+      '</button>' +
+      '<div class="closet-grid" id="closetGrid-' + cat.key + '">';
     items.forEach(function(it){
       var need = needsReview(it);
       var label = esc(it.name);
@@ -4402,13 +4466,34 @@ function bindEvents(){
       deleteItem(el.getAttribute('data-id'));
     } else if (act === 'closet-filter') {
       state.closetFilter = el.getAttribute('data-filter') || 'all';
+      /* 필터를 바꾸면 결과가 접힘에 가려지지 않도록 모두 펼침으로 되돌린다 */
+      clearClosetCollapsed();
+      renderCloset();
+    } else if (act === 'closet-toggle') {
+      var catKey = el.getAttribute('data-cat');
+      if (!state.closetCollapsed) state.closetCollapsed = {};
+      if (state.closetCollapsed[catKey]) delete state.closetCollapsed[catKey];
+      else state.closetCollapsed[catKey] = true;
+      saveClosetCollapsed(state.closetCollapsed);
+      renderCloset();
+    } else if (act === 'closet-toggle-all') {
+      var groupsNow = closetGroups();
+      var allClosed = groupsNow.length > 0 && groupsNow.every(function(g){ return isClosetCollapsed(g.cat.key); });
+      var nextCollapsed = {};
+      if (!allClosed) {
+        groupsNow.forEach(function(g){ nextCollapsed[g.cat.key] = true; });
+      }
+      state.closetCollapsed = nextCollapsed;
+      saveClosetCollapsed(nextCollapsed);
       renderCloset();
     } else if (act === 'goto-verify') {
       state.closetFilter = 'review';
+      clearClosetCollapsed();
       switchTab('closet');
       renderCloset();
     } else if (act === 'goto-closet') {
       state.closetFilter = 'all';
+      clearClosetCollapsed();
       switchTab('closet');
       renderCloset();
     } else if (act === 'dislike-restore') {
@@ -4555,6 +4640,7 @@ function bindEvents(){
    ══════════════════════════════════════════════════════════════ */
 function boot(){
   loadState();
+  state.closetCollapsed = loadClosetCollapsed();
   renderToday();
   $('#appVersion').textContent = APP_VERSION;
 
