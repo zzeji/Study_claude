@@ -513,7 +513,10 @@
   .weather-search .row{ display:flex; gap:6px; }
   .weather-search input{
     flex:1; min-width:0; padding:9px 11px; border-radius:11px; border:1px solid var(--line-strong);
-    background:#fff; font-size:14px; letter-spacing:-.2px; -webkit-appearance:none; appearance:none;
+    background:#fff; font-size:16px; letter-spacing:-.2px; -webkit-appearance:none; appearance:none;
+  }
+  .weather-search input:focus{
+    outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(123,91,69,.13);
   }
   .weather-search input::placeholder{ color:#b6ac9e; }
   .weather-search .go{
@@ -2594,9 +2597,10 @@ function renderWeather(){
 
 function regionChipHtml(r){
   if (!r) return '';
-  var sub = r.admin ? '<span class="rg-admin">' + esc(r.admin) + '</span>' : '';
+  var admin = String(r.admin || '');
+  var sub = (admin && regionNorm(admin) !== regionNorm(r.name)) ? '<span class="rg-admin">' + esc(admin) + '</span>' : '';
   return '<button class="region-chip" data-action="region-pick" data-name="' + esc(r.name) + '"' +
-    ' data-admin="' + esc(r.admin || '') + '" data-lat="' + esc(r.lat) + '" data-lon="' + esc(r.lon) + '">' +
+    ' data-admin="' + esc(admin) + '" data-lat="' + esc(r.lat) + '" data-lon="' + esc(r.lon) + '">' +
     esc(r.name) + sub + '</button>';
 }
 
