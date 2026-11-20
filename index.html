@@ -752,7 +752,7 @@
 /* ══════════════════════════════════════════════════════════════
    0. 상수 · 스키마
    ══════════════════════════════════════════════════════════════ */
-var APP_VERSION = '1.4.1';  /* 1.4.1: 옷장 탭 종류별 3열 격자 */
+var APP_VERSION = '1.4.2';  /* 1.4.2: 12°C 미만 여름옷(반팔·나시·반바지·여름용·린넨) 하드 제외 + 온도 허용 오차 축소 */
 var SCHEMA_VERSION = 4;
 var STORAGE_KEY = 'wardrobeApp.v1';
 
@@ -1698,11 +1698,73 @@ function effectiveTemp(){
   return clamp(Number(state.settings.baseTemp) + Number(state.settings.sensitivity), -25, 40);
 }
 
+/* 적정 온도에서 얼마나 벗어나도 후보로 남길지(°C). 추울수록 좁게 본다. */
+var TEMP_MARGIN_BOOST = 0;   /* 맞는 옷이 하나도 없을 때만 넓히는 임시 여유 */
+function tempMargin(T){
+  var extra = TEMP_MARGIN_BOOST;
+  if (T < -6) return 8 + extra;   /* 옷장에 이만큼 따뜻한 옷이 드물어 후보가 비지 않도록 조금 넓힌다 */
+  if (T <= 8) return 5 + extra;
+  if (T <= 16) return 7 + extra;
+  return 10 + extra;
+}
+
 function tempFit(item, T){
   if (item.tempMin == null || item.tempMax == null) return 0;
   if (T >= item.tempMin && T <= item.tempMax) return 1;
   var d = T < item.tempMin ? item.tempMin - T : T - item.tempMax;
-  return Math.max(0, 1 - d / 10);
+  return Math.max(0, 1 - d / tempMargin(T));
+}
+
+/* ══════════════════════════════════════════════════════════════
+   계절 하드 필터
+   - 12°C 미만: 반팔·반소매·캡소매·여름용·썸머·린넨·시스루/쉬폰 등 여름옷은
+     상의·하의·원피스·아우터 후보에서 아예 뺀다(점수 계산 전 제외).
+   - 18°C 미만: 나시·민소매·튜브탑·홀터·반바지·쇼츠는 더 추위에 약하므로
+     18°C 미만에서 하드 제외.
+   - 12~17°C: 반팔 계열은 후보에는 남기되 점수를 깔아 뒤로 미룬다.
+   - 18°C 이상: 평소대로 추천한다.
+   ══════════════════════════════════════════════════════════════ */
+var SUMMER_BLOCK_TEMP = 12;      /* 반팔·반소매·여름·린넨 하드 제외 기준 */
+var SLEEVELESS_BLOCK_TEMP = 18;  /* 나시·민소매·반바지 하드 제외 기준 */
+var SUMMER_SOFT_TEMP = 18;       /* 이 기온 미만에서는 여름옷 점수를 깎는다 */
+var SLEEVELESS_WORD_RE = /(민소매|나시|슬리브리스|튜브탑|홀터넥|홀터|반바지|쇼츠|숏팬츠|숏츠|핫팬츠)/;
+var SUMMER_WORD_RE = /(반팔|반소매|캡소매|숏슬리브|여름|썸머|린넨|시어서커)/;
+var SHEER_WORD_RE = /(시스루|쉬폰|메쉬)/;
+
+function isBodyCategory(cat){
+  return cat === 'top' || cat === 'bottom' || cat === 'dress' || cat === 'outer';
+}
+
+/* '여름옷' 판정: 반환값 2 = 무소매·반바지 계열, 1 = 반팔·여름용 계열, 0 = 여름옷 아님 */
+function summerWearLevel(item){
+  if (!item) return 0;
+  var hay = oneLine([item.name, item.style, item.option, item.material, item.materialRaw]);
+  if (SLEEVELESS_WORD_RE.test(hay)) return 2;
+  if (SUMMER_WORD_RE.test(hay)) return 1;
+  /* 비침·얇은 소재는 보온 소재(울·캐시미어 등)가 아닐 때만 여름옷으로 본다 */
+  var warm = item.materialKey ? matOf(item).warmth : 0.5;
+  if (SHEER_WORD_RE.test(hay) && warm < 0.7) return 1;
+  var seasons = item.seasons || [];
+  if (seasons.length) {
+    var hasSummer = seasons.indexOf('여름') >= 0;
+    var hasCold = seasons.indexOf('겨울') >= 0 || seasons.indexOf('가을') >= 0 ||
+                  seasons.indexOf('봄') >= 0 || seasons.indexOf('사계절') >= 0;
+    if (hasSummer && !hasCold) return 1;
+  }
+  if (typeof item.season === 'string' && /여름/.test(item.season) && !/가을|겨울|봄|사계절/.test(item.season)) return 1;
+  return 0;
+}
+
+function isSummerWear(item){
+  return summerWearLevel(item) > 0;
+}
+
+/* 이 기온에서 후보로 올리면 안 되는 여름옷인가 */
+function summerBlocked(item, T){
+  var lv = summerWearLevel(item);
+  if (!lv) return false;
+  if (lv >= 2) return T < SLEEVELESS_BLOCK_TEMP;
+  return T < SUMMER_BLOCK_TEMP;
 }
 
 function targetWarmth(category, T){
@@ -1720,13 +1782,17 @@ function dislikeItemCount(itemId){
 function scoreItem(item, mood, T){
   var fit = tempFit(item, T);
   if (fit <= 0.02) return -Infinity;
+  /* 12°C 미만이면 여름옷은 후보에서 하드 제외 */
+  var summer = isBodyCategory(item.category) && isSummerWear(item);
+  if (summer && summerBlocked(item, T)) return -Infinity;
   var m = item.materialKey ? matOf(item) : { warmth:0.5, label:'소재 미확인' };
   var warmthPenalty = Math.abs(m.warmth - targetWarmth(item.category, T)) * 10;
   var style = (item.moods && item.moods[mood.key]) || 0;
   var formalityPenalty = Math.abs((item.formality || 3) - mood.formality) * 5;
   var outsideRange = (T < item.tempMin || T > item.tempMax);
   var unknownPenalty = item.materialKey ? 0 : 6;
-  return fit * 40 + style * 6 - formalityPenalty - warmthPenalty - (outsideRange ? 12 : 0) - unknownPenalty - dislikeItemCount(item.id) * 4;
+  var summerPenalty = (summer && T < SUMMER_SOFT_TEMP) ? 10 : 0;
+  return fit * 40 + style * 6 - formalityPenalty - warmthPenalty - (outsideRange ? 12 : 0) - unknownPenalty - summerPenalty - dislikeItemCount(item.id) * 4;
 }
 
 function harmonyColors(items){
@@ -1751,9 +1817,10 @@ function harmonyColors(items){
 
 function evaluateLook(items, mood, T){
   /* 소재 궁합은 몸통에 입는 옷(상의·하의·아우터·원피스)만 본다. 신발·소품은 소재보다 역할이 중요 */
-  var bodyItems = items.filter(function(i){
-    return i.category === 'outer' || i.category === 'top' || i.category === 'bottom' || i.category === 'dress';
-  });
+  var bodyItems = items.filter(function(i){ return isBodyCategory(i.category); });
+
+  /* 12°C 미만에서는 여름옷이 한 벌이라도 들어간 코디는 만들지 않는다 */
+  if (bodyItems.some(function(i){ return summerBlocked(i, T); })) return null;
   var warmths = bodyItems.map(function(i){ return matOf(i).warmth; });
   var wMax = Math.max.apply(null, warmths);
   var wMin = Math.min.apply(null, warmths);
@@ -1768,7 +1835,7 @@ function evaluateLook(items, mood, T){
 
   /* ── 아우터가 옷장에 있는데 영하권에서 안 입는 조합 ── */
   var closetHasOuter = state.items.some(function(i){ return i.category === 'outer'; });
-  if (T <= 8 && !hasOuter && closetHasOuter) return null;
+  if (T <= 10 && !hasOuter && closetHasOuter) return null;
   if (T >= 22 && hasOuter) return null;
 
   /* ── 아우터의 보온력이 기온에 못 미치는 조합 (2°C에 트렌치 등) ── */
@@ -1859,8 +1926,8 @@ function buildCandidates(mood, T){
   var excluded = {};
   state.dislikes.forEach(function(d){ excluded[d.signature] = 1; });
 
-  function pick(cat, n){
-    return state.items.filter(function(i){ return i.category === cat; })
+  function pick(cat, n, keep){
+    return state.items.filter(function(i){ return i.category === cat && (!keep || keep(i)); })
       .map(function(i){ return { i:i, s:scoreItem(i, mood, T) }; })
       .filter(function(x){ return x.s > -Infinity; })
       .sort(function(a, b){ return b.s - a.s; })
@@ -1868,10 +1935,18 @@ function buildCandidates(mood, T){
       .map(function(x){ return x.i; });
   }
 
-  var tops = pick('top', 4);
+  var tops = pick('top', T <= 8 ? 6 : 4);  /* 추울수록 상의 후보를 넓게 잡아 5개 코디가 서로 다른 옷으로 나오게 */
   var bottoms = pick('bottom', 4);
   var dresses = pick('dress', 2);
-  var outers = (T <= 18) ? pick('outer', 4) : [];
+  /* 추우면 아우터 후보를 '입을 수 있는 두께'로 먼저 걸러낸다.
+     (예전에는 얇은 아우터 4벌이 후보를 차지해 코디가 통째로 비었다) */
+  var outerNeed = 0;
+  var outerCap = state.items.filter(function(i){ return i.category === 'outer'; })
+    .reduce(function(m, i){ return Math.max(m, matOf(i).warmth); }, 0);
+  if (T <= 6) outerNeed = Math.min(0.75, outerCap - 0.02);
+  else if (T <= 12) outerNeed = Math.min(0.45, outerCap - 0.02);
+  var outers = (T <= 18) ? pick('outer', 4, function(i){ return matOf(i).warmth >= outerNeed; }) : [];
+  if ((T <= 18) && !outers.length) outers = pick('outer', 4);
   var shoes = pick('shoes', 3);
   var bags = pick('bag', 3);
   var accs = pick('acc', 3);
@@ -1989,8 +2064,7 @@ function describeLook(items, mood, T){
   return '체감 ' + T + '°C · ' + mats.slice(0, 3).join(' / ') + ' · ' + colorText;
 }
 
-function recomputeLooks(){
-  var T = effectiveTemp();
+function computeLooks(T){
   state.lookPool = {};
   var pools = [];
   MOODS.forEach(function(mood){
@@ -2048,6 +2122,20 @@ function recomputeLooks(){
     });
   });
 
+  state.looks = looks;
+  return looks;
+}
+
+/* 옷장에 그 기온에 맞는 옷이 한 벌도 없을 때만 온도 여유를 넓혀 한 번 더 시도한다 */
+function recomputeLooks(){
+  var T = effectiveTemp();
+  TEMP_MARGIN_BOOST = 0;
+  var looks = computeLooks(T);
+  if (!looks.length) {
+    TEMP_MARGIN_BOOST = 6;
+    looks = computeLooks(T);
+    TEMP_MARGIN_BOOST = 0;
+  }
   state.looks = looks;
   return looks;
 }
@@ -3020,7 +3108,7 @@ function renderLooks(){
 
     var thin = items.filter(function(i){
       return (i.category === 'top' || i.category === 'bottom' || i.category === 'dress') &&
-             i.tempMin != null && (T < i.tempMin - 4 || T > i.tempMax + 4);
+             i.tempMin != null && (T < i.tempMin - tempMargin(T) / 2 || T > i.tempMax + tempMargin(T) / 2);
     });
     var verdict = thin.length ? '기온 주의' : '날씨 최적';
 
