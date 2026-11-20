@@ -2361,8 +2361,10 @@ function describeLook(items, mood, T){
     var l = matLabel(i);
     if (mats.indexOf(l) < 0) mats.push(l);
   });
-  var accents = items.map(colorMeta).filter(function(c){ return c.family === 'accent'; });
-  var colorText = accents.length ? '포인트 컬러 ' + accents.length + '개' : '무채색 통일';
+  var p = paletteInfo(items);
+  var points = p.vivid + (isVividFamily(p.bagFamily) ? 1 : 0);
+  var colorText = points ? '포인트 컬러 ' + points + '개'
+    : ((p.cool && p.earth) ? '어스톤 + 쿨 포인트' : '무채색 통일');
   return '체감 ' + T + '°C · ' + mats.slice(0, 3).join(' / ') + ' · ' + colorText;
 }
 
