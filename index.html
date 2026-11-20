@@ -171,6 +171,7 @@
   .style-badge.safe{ background:#eef0ee; color:#4a5b52; }
   .style-badge.exp{ background:#fbe8ef; color:#a8385c; }
   .style-badge.exp.chic{ background:#eee9f7; color:#5a3f8a; }
+  .style-badge.exp.point{ background:#e9f3ea; color:#2f6b47; }
   .color-note{ font-size:11.5px; font-weight:700; color:#6b5747; letter-spacing:-.3px; }
   .look-items{ display:flex; flex-direction:column; gap:2px; }
   .look-item{
@@ -663,7 +664,7 @@
       <div id="lookNotice"></div>
       <p class="footnote">
         코디 카드는 옆으로 넘겨서 봐요 — 상품 사진 누끼로 만든 룩북이에요.<br>
-        🧤 데일리 무난 + 🎨 핀터 감성·실험적 색조합을 섞어 5개를 추천해요.<br>
+        🎨 실험적 색조합 · ✨ 컬러 백 포인트·톤온톤 3개 + 🧤 데일리 무난 2개를 추천해요.<br>
         마음에 안 드는 코디는 👎로 알려주시면 다시 추천하지 않아요.
       </p>
     </section>
@@ -777,7 +778,7 @@
 /* ══════════════════════════════════════════════════════════════
    0. 상수 · 스키마
    ══════════════════════════════════════════════════════════════ */
-var APP_VERSION = '1.4.4';  /* 1.4.4: 옷장 카테고리 접기·펼치기(아코디언) + 모두 접기/펼치기 · 1.4.3: 코디 5개 = 무난(데일리) 2~3 + 실험적/핀터 색조합 2~3, 카드에 배지 + 색조합 한 줄, 새로 추천 시 조합 변화 */
+var APP_VERSION = '1.4.5';  /* 1.4.5: 코디 5개 = 실험적·핀터 3 + 데일리 무난 2, 한 세트 안에서 상의·하의·가방 5벌 모두 다르게, 최근 3세트를 기억해 '새로 추천'마다 다른 옷 · 1.4.4: 옷장 아코디언 · 1.4.3: 색조합 배지·한 줄 · 1.4.2: 여름옷 하드 제외 */
 var SCHEMA_VERSION = 4;
 var STORAGE_KEY = 'wardrobeApp.v1';
 
@@ -1626,13 +1627,18 @@ function rgbToHsl(r, g, b){
   return { h:h, s:s, l:l };
 }
 
+/* 색 계산은 색상값마다 한 번만 — 후보 수천 개를 비교할 때 계산 시간이 크게 줄어든다 */
+var COLOR_META_CACHE = {};
 function colorMeta(item){
   var hex = item.colorHex || colorHexOf(item.colorName) || '#9a9a9e';
+  var cached = COLOR_META_CACHE[hex];
+  if (cached) return cached;
   var rgb = hexToRgb(hex);
   var hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
   var neutral = hsl.s < 0.20 || hsl.l < 0.16 || hsl.l > 0.90;
-  var weight = neutral ? 1 : 2;
-  return { hex:hex, h:hsl.h, s:hsl.s, l:hsl.l, family: neutral ? 'neutral' : 'accent', weight:weight };
+  cached = { hex:hex, h:hsl.h, s:hsl.s, l:hsl.l, family: neutral ? 'neutral' : 'accent', weight: neutral ? 1 : 2 };
+  COLOR_META_CACHE[hex] = cached;
+  return cached;
 }
 
 function hueDiff(a, b){
@@ -2052,13 +2058,69 @@ function paletteInfo(items){
            bagFamily:bagFamily, tone:tone, comp:comp, analog:analog, muddy:muddy, scheme:scheme };
 }
 
+function bodyItemsOf(items){
+  return items.filter(function(i){ return isBodyCategory(i.category); });
+}
+function bagOfLook(items){
+  return items.filter(function(i){ return i.category === 'bag'; })[0] || null;
+}
+
+/* 코디 성격(flavor) — 3장이 서로 다른 핀터 감성이 되도록 나눠 뽑는 기준
+   vivid    : 유채색 몸통이 주인공(보색·유채색 2벌) → 실험적 색조합 🎨
+   bagpoint : 모노톤·뉴트럴 옷차림 + 컬러 가방 원포인트 → 컬러 백 포인트 ✨
+   tone     : 톤온톤 · 어스+쿨 · 데님+포멀 믹스 → 핀터 감성 ✨ */
+function lookFlavorOf(items, p, bag){
+  p = p || paletteInfo(items);
+  bag = bag || bagOfLook(items);
+  var bodyVivid = bodyItemsOf(items).some(function(i){ return isVividFamily(colorFamilyOf(i)); });
+  var bagColored = !!bag && !!p.bagFamily && p.bagFamily !== 'neutral' && p.bagFamily !== 'metal';
+  if (bodyVivid) return 'vivid';        /* ① 유채색 상의·하의가 주인공 (+ 포인트 가방) */
+  if (bagColored) return 'bagpoint';    /* ② 모노톤·뉴트럴 옷차림 + 컬러 가방 원포인트 */
+  return 'tone';                        /* ③ 톤온톤 · 어스+쿨 · 데님+포멀 믹스 */
+}
+
+/* 후보 목록을 '다른 옷' 중심으로 고르게 섞는다.
+   - 같은 상의·하의·가방 조합은 한 번만 (신발·소품만 바꾼 변형은 버린다)
+   - 하의가 다른 후보를 번갈아 담아, 한 벌의 변형으로 카드 5장이 채워지지 않게 */
+function diversifyCandidates(list, max){
+  var seenCombo = {}, uniq = [];
+  list.forEach(function(c){
+    var key = ['top', 'bottom', 'dress', 'bag'].map(function(cat){
+      var it = c.items.filter(function(i){ return i.category === cat; })[0];
+      return it ? it.id : '-';
+    }).join('|');
+    if (seenCombo[key]) return;
+    seenCombo[key] = 1;
+    uniq.push(c);
+  });
+  var buckets = {}, order = [];
+  uniq.forEach(function(c){
+    var b = c.items.filter(function(i){ return i.category === 'bottom' || i.category === 'dress'; })[0];
+    var k = b ? b.id : '-';
+    if (!buckets[k]) { buckets[k] = []; order.push(k); }
+    buckets[k].push(c);
+  });
+  var mixed = [], more = true;
+  while (mixed.length < max && more) {
+    more = false;
+    for (var i = 0; i < order.length && mixed.length < max; i++) {
+      var b = buckets[order[i]];
+      if (b && b.length) { mixed.push(b.shift()); more = true; }
+    }
+  }
+  return mixed;
+}
+
 /* 실험 코디용 배색 점수 (색이 실제로 있지 않으면 탈락) */
 function pinPaletteScore(items){
   var p = paletteInfo(items);
   if (p.vivid > 2) return { reject:true, score:0 };
   if (p.distinct > 4) return { reject:true, score:0 };
-  var hasColor = p.vivid >= 1 || (p.cool && p.earth) ||
-                 (p.bagFamily && isVividFamily(p.bagFamily));
+  var body = bodyItemsOf(items);
+  var bag = bagOfLook(items);
+  var bodyVivid = body.some(function(i){ return isVividFamily(colorFamilyOf(i)); });
+  var bagColored = !!bag && !!p.bagFamily && p.bagFamily !== 'neutral' && p.bagFamily !== 'metal';
+  var hasColor = p.vivid >= 1 || (p.cool && p.earth) || bagColored;
   if (!hasColor) return { reject:true, score:0 };
 
   var score = -(p.distinct - 1) * 1.5;
@@ -2070,8 +2132,20 @@ function pinPaletteScore(items){
   if (p.analog) score += 4;
   if (p.comp) score += 3;
   if (p.muddy) score -= 4;
-  if (p.bagFamily && p.bagFamily !== 'neutral' && p.bagFamily !== 'metal') score += 5;
+  if (bagColored) score += 5;
   if (p.vivid >= 1 && p.neutral === 0 && p.cool === 0 && p.earth === 0) score -= 8;
+
+  /* 모노톤·뉴트럴 옷차림 + 컬러 가방 원포인트 (핑크 버니카골 · 올리브 르메르 · 카멜 셀린느) */
+  if (!bodyVivid && bagColored) score += 14 + (isVividFamily(p.bagFamily) ? 4 : 0);
+  /* 유채색 상의 + 포인트 가방 */
+  if (bodyVivid && bagColored) score += 6;
+  /* 데님 + 포멀 믹스 */
+  var denimBottom = items.some(function(i){
+    return i.category === 'bottom' && (i.materialKey === 'denim' || /데님|청바지|진청/.test(i.name));
+  });
+  var formalPiece = items.some(function(i){ return isBodyCategory(i.category) && (i.formality || 3) >= 4; });
+  if (denimBottom && formalPiece) score += 6;
+
   return { reject:false, score:score, palette:p, scheme:p.scheme };
 }
 
@@ -2101,16 +2175,19 @@ function colorNoteOf(items, pointMode){
 /* 카드에 붙는 성격 브랜드 링 + 색조합 한 줄 */
 function lookStyleInfo(items, kind){
   var p = paletteInfo(items);
-  var contrast = (p.vivid >= 2) || (p.comp && p.vivid >= 1) || p.scheme === 'contrast';  var exp = (kind === 'exp') || p.vivid >= 2;
+  var contrast = (p.vivid >= 2) || (p.comp && p.vivid >= 1) || p.scheme === 'contrast';
+  var exp = (kind === 'exp') || p.vivid >= 2;
+  var flavor = lookFlavorOf(items);
   var badge, cls;
   if (exp) {
-    badge = contrast ? '실험적 색조합 🎨' : '핀터 감성 ✨';
-    cls = contrast ? 'exp chic' : 'exp';
+    if (flavor === 'bagpoint') { badge = '컬러 백 포인트 ✨'; cls = 'exp point'; }
+    else if (contrast) { badge = '실험적 색조합 🎨'; cls = 'exp chic'; }
+    else { badge = '핀터 감성 ✨'; cls = 'exp'; }
   } else {
     badge = '데일리 무난';
     cls = 'safe';
   }
-  return { kind:kind || 'safe', exp:exp, contrast:contrast, badge:badge, cls:cls,
+  return { kind:kind || 'safe', exp:exp, contrast:contrast, flavor:flavor, badge:badge, cls:cls,
            note:colorNoteOf(items, exp), palette:p };
 }
 
@@ -2167,7 +2244,7 @@ function buildColorCandidates(T){
   }
 
   var tops = pick('top', 14);
-  var bottoms = pick('bottom', 8);
+  var bottoms = pick('bottom', 9);
   var dresses = pick('dress', 3);
   var outerNeed = 0;
   var outerCap = state.items.filter(function(i){ return i.category === 'outer'; })
@@ -2176,7 +2253,7 @@ function buildColorCandidates(T){
   else if (T <= 12) outerNeed = Math.min(0.45, outerCap - 0.02);
   var outers = (T <= 18) ? pick('outer', 6, function(i){ return matOf(i).warmth >= outerNeed; }) : [];
   if (T <= 18 && !outers.length) outers = pick('outer', 6);
-  var bags = pick('bag', 6);
+  var bags = pick('bag', 14);   /* 가방은 기온 영향이 없어 전부 후보로 — 컬러 백과 기본 백을 함께 */
 
   var bases = [];
   tops.forEach(function(t){ bottoms.forEach(function(b){ bases.push([t, b]); }); });
@@ -2198,53 +2275,67 @@ function buildColorCandidates(T){
         var ev = evaluateLook(items, FREE_MOOD, T, { freeColor:true });
         if (!ev) return;
         seen[sig] = 1;
-        out.push({ signature:sig, items:items, score:ev.score, hero:heroIdOf(items), scheme:ev.scheme });
+        out.push({ signature:sig, items:items, score:ev.score - recLookPenalty(items), hero:heroIdOf(items), scheme:ev.scheme });
       });
     });
   });
 
   out.sort(function(a, b){ return b.score - a.score; });
-  /* 색 조합이 사실상 같은 후보(같은 포인트 색·같은 가방·같은 아우터)는 한 번만 남겨
-     하의만 바꾼 '같은 코디'로 카드를 채우지 않도록 한다. */
+  /* 색 조합이 사실상 같은 후보(같은 포인트 색·같은 가방·같은 아우터)는 2개까지만 남겨
+     하의만 바꾼 '같은 코디'로 카드를 채우지 않으면서, 다른 하의·상의를 입은 룩은 살린다. */
+  /* 후보마다 색 정보·성격을 한 번만 계산해 둔다(수천 개 후보에서 계산 시간이 크게 줄어든다) */
+  out.forEach(function(c){
+    c.pal = paletteInfo(c.items);
+    c.bag = bagOfLook(c.items);
+    c.flavor = lookFlavorOf(c.items, c.pal, c.bag);
+  });
   var seenColor = {}, list = [];
   out.forEach(function(c){
-    var p = paletteInfo(c.items);
+    var p = c.pal;
     var bodyColors = c.items.filter(function(i){
       return isBodyCategory(i.category) && colorFamilyOf(i) !== 'neutral';
     }).map(function(i){ return i.colorName || '-'; }).sort().join('+');
     var outer = c.items.filter(function(i){ return i.category === 'outer'; })[0];
     var key = bodyColors + '|' + (p.bagFamily || '-') + '|' + (outer ? (outer.colorName || '-') : '-');
-    if (seenColor[key]) return;
-    seenColor[key] = 1;
+    var seen = seenColor[key] || 0;
+    if (seen >= 2) return;
+    seenColor[key] = seen + 1;
     list.push(c);
   });
 
-  /* 아우터 색 × 가방 계열별로 돌아가며 담아, 한 아우터와 한 가방만 반복되는 일을 막는다 */
-  var buckets = {}, order = [];
+  /* 성격(색조합 · 컬러 백 · 톤온톤)별로 후보를 고르게 남긴다 —
+     점수만으로 자르면 컬러 백 코디가 후보를 다 차지해 톤온톤·어스+쿨 룩이 사라진다. */
+  var byFlavor = {}, flavorOrder = [];
   list.forEach(function(c){
-    var oc = c.items.filter(function(i){ return i.category === 'outer'; })[0];
-    var p2 = paletteInfo(c.items);
-    var k = (oc ? (oc.colorName || '-') : '-') + '|' + (p2.bagFamily || '-');
-    if (!buckets[k]) { buckets[k] = []; order.push(k); }
-    buckets[k].push(c);
+    var f = c.flavor;
+    if (!byFlavor[f]) { byFlavor[f] = []; flavorOrder.push(f); }
+    byFlavor[f].push(c);
   });
-  var mixed = [], more = true;
-  while (mixed.length < 20 && more) {
-    more = false;
-    for (var bi = 0; bi < order.length; bi++) {
-      var b = buckets[order[bi]];
-      if (b.length && mixed.length < 20) { mixed.push(b.shift()); more = true; }
-    }
-  }
-  return mixed;
+  var picked = [];
+  flavorOrder.forEach(function(f){
+    picked = picked.concat(diversifyCandidates(byFlavor[f], 12));
+  });
+  return diversifyCandidates(picked, 40);
 }
 
-function buildCandidates(mood, T){
+function buildCandidates(mood, T, opts){
+  opts = opts || {};
+  /* 이미 뽑힌 코디가 쓴 상의·하의·가방은 후보에서 빼서 한 세트 안에서 겹치지 않게 한다 */
+  var excl = opts.exclude || null;
   var excluded = {};
   state.dislikes.forEach(function(d){ excluded[d.signature] = 1; });
 
   function pick(cat, n, keep){
-    return state.items.filter(function(i){ return i.category === cat && (!keep || keep(i)); })
+    var pool = state.items.filter(function(i){ return i.category === cat && (!keep || keep(i)); });
+    var list = pool;
+    /* 상의·하의·가방만 빼고 본다 — 아우터는 추운 날 후보가 적어 겹쳐도 다시 쓴다 */
+    if (excl && UNIQUE_CATS[cat] && excl[cat]) {
+      list = pool.filter(function(i){ return !excl[cat][i.id]; });
+      /* 빼고 나면 쓸 수 있는 옷이 2벌도 안 남는 아주 추운 날에는 겹쳐도 다시 쓴다 */
+      var left = list.filter(function(i){ return scoreItem(i, mood, T) > -Infinity; }).length;
+      if (left < Math.min(2, n)) list = pool;
+    }
+    return list
       .map(function(i){ return { i:i, s:scoreItem(i, mood, T) }; })
       .filter(function(x){ return x.s > -Infinity; })
       .sort(function(a, b){ return b.s - a.s; })
@@ -2253,7 +2344,7 @@ function buildCandidates(mood, T){
   }
 
   var tops = pick('top', T <= 8 ? 6 : 4);  /* 추울수록 상의 후보를 넓게 잡아 5개 코디가 서로 다른 옷으로 나오게 */
-  var bottoms = pick('bottom', 4);
+  var bottoms = pick('bottom', 5);
   var dresses = pick('dress', 2);
   /* 추우면 아우터 후보를 '입을 수 있는 두께'로 먼저 걸러낸다.
      (예전에는 얇은 아우터 4벌이 후보를 차지해 코디가 통째로 비었다) */
@@ -2266,6 +2357,11 @@ function buildCandidates(mood, T){
   if ((T <= 18) && !outers.length) outers = pick('outer', 4);
   var shoes = pick('shoes', 3);
   var bags = pick('bag', 3);
+  /* 데일리 카드도 기본 가방(블랙·아이보리)으로 나오도록 무채색 가방을 후보에 함께 넣는다 */
+  pick('bag', 2, function(i){
+    var f = colorFamilyOf(i);
+    return f === 'neutral' || f === 'metal';
+  }).forEach(function(b){ if (bags.indexOf(b) < 0) bags.push(b); });
   var accs = pick('acc', 3);
 
   if (!tops.length && !dresses.length) return [];
@@ -2304,7 +2400,9 @@ function buildCandidates(mood, T){
   });
 
   out.sort(function(a, b){ return b.score - a.score; });
-  return out.slice(0, 10);
+  /* 점수 순서대로 잘라 쓰면 상의·하의·가방만 같은 '한 벌의 변형'만 남는다.
+     조합이 다른 후보를 고르게 섞어 서로 다른 옷의 코디를 남긴다. */
+  return diversifyCandidates(out, 16);
 }
 
 function suggestMissing(items, mood, T){
@@ -2395,15 +2493,159 @@ function seedRnd(){
 }
 
 /* ══════════════════════════════════════════════════════════════
-   코디 5개 = 무난(데일리) 2~3 + 실험적/핀터 색조합 2~3
+   최근 추천 이력 — '새로 추천'이 같은 하의·가방만 돌지 않게
+   최근 3세트에 쓴 옷 id를 기억하고, 다음 추천에서 그 옷을 뒤로 미룬다.
+   (recentLookKeys = 세트 서명, recentItemIds = 옷 id)
    ══════════════════════════════════════════════════════════════ */
+var REC_HISTORY_KEY = 'wardrobeApp.v1.recHistory';
+var REC_HISTORY_MAX = 3;
+var REC_HISTORY = (function(){
+  try {
+    var arr = JSON.parse(Storage.get(REC_HISTORY_KEY) || '[]');
+    return Array.isArray(arr) ? arr.slice(0, REC_HISTORY_MAX) : [];
+  } catch (e) { return []; }
+})();
+
+function recHistorySave(){
+  try { Storage.set(REC_HISTORY_KEY, JSON.stringify(REC_HISTORY.slice(0, REC_HISTORY_MAX))); } catch (e) {}
+}
+
+function recSetKeyOf(looks){
+  return looks.map(function(l){ return l.signature; }).sort().join(';');
+}
+
+function recHistoryRecord(looks){
+  if (!looks || !looks.length) return;
+  var key = recSetKeyOf(looks);
+  if (REC_HISTORY.length && REC_HISTORY[0] && REC_HISTORY[0].key === key) return;
+  var ids = {};
+  looks.forEach(function(l){ (l.items || []).forEach(function(it){ ids[it.id] = 1; }); });
+  REC_HISTORY.unshift({ key:key, ids:ids, at:Date.now() });
+  if (REC_HISTORY.length > REC_HISTORY_MAX) REC_HISTORY.length = REC_HISTORY_MAX;
+  recHistorySave();
+}
+
+/* 1 = 바로 전 세트에 나온 옷, 2·3 = 그 전 세트, 0 = 최근에 없음 */
+function recRecentHit(id){
+  for (var i = 0; i < REC_HISTORY.length; i++) {
+    if (REC_HISTORY[i] && REC_HISTORY[i].ids && REC_HISTORY[i].ids[id]) return i + 1;
+  }
+  return 0;
+}
+function recLastSetHas(id){ return recRecentHit(id) === 1; }
+
+/* 코디에 최근에 쓴 옷이 많을수록 감점 (하의·가방을 특히 강하게) */
+function recLookPenalty(items){
+  var pen = 0;
+  (items || []).forEach(function(it){
+    var h = recRecentHit(it.id);
+    if (!h) return;
+    var base = it.category === 'bag' ? 16 : (it.category === 'bottom' ? 14 : (it.category === 'top' ? 10 : 4));
+    pen += base / h;
+  });
+  return pen;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   코디 5개 = 실험적·핀터 감성 3 + 데일리 무난 2
+   - 한 세트 안에서 상의·하의·가방은 5벌 모두 서로 다른 옷
+   - 최근 3세트에 쓴 옷은 뒤로 미뤄 '새로 추천'마다 실제로 달라진다
+   ══════════════════════════════════════════════════════════════ */
+var UNIQUE_CATS = { top:1, bottom:1, dress:1, bag:1 };
+var EXP_FLAVORS = ['vivid', 'bagpoint', 'tone'];
+
 function computeLooks(T){
   state.lookPool = {};
+
+  var usedSig = {}, usedItems = {};
+  var catUsed = { top:{}, bottom:{}, dress:{}, bag:{}, shoes:{}, acc:{}, outer:{} };
+  var bagColorUsed = {}, outerColorUsed = {}, heroUsed = {}, schemeUsed = {}, moodUsed = {};
+  var hasBags = state.items.some(function(i){ return i.category === 'bag'; });
+
+  /* keepCats 를 주면 그 카테고리만 겹침을 막는다 (레벨 1에서 상의만 풀 때) */
+  function conflicts(items, keepCats){
+    return items.some(function(it){
+      if (!UNIQUE_CATS[it.category]) return false;
+      if (keepCats && !keepCats[it.category]) return false;
+      return !!catUsed[it.category][it.id];
+    });
+  }
+  function seenRecently(items){
+    return items.some(function(it){ return recLastSetHas(it.id); });
+  }
+  function commit(cand, kind, mood, candList){
+    var look = {
+      kind:kind, moodKey:mood.key, mood:mood, signature:cand.signature,
+      items:cand.items, candidates:candList, candidateIndex:candList.indexOf(cand)
+    };
+    usedSig[cand.signature] = 1;
+    cand.items.forEach(function(it){
+      usedItems[it.id] = 1;
+      if (UNIQUE_CATS[it.category]) catUsed[it.category][it.id] = 1;
+    });
+    var bag = bagOfLook(cand.items);
+    if (bag) bagColorUsed[bag.colorName || '-'] = 1;
+    var outer = cand.items.filter(function(it){ return it.category === 'outer'; })[0];
+    if (outer) outerColorUsed[outer.colorName || '-'] = 1;
+    if (cand.hero) heroUsed[cand.hero] = 1;
+    moodUsed[mood.key] = 1;
+    return look;
+  }
+
+  /* ── 1) 실험적·핀터 감성 3개: 색조합(🎨) · 컬러 백 포인트(✨) · 톤온톤(✨) ── */
+  var expCands = buildColorCandidates(T);
+  var expLooks = [];
+
+  function pickExp(targetFlavor, level){
+    var best = null, bestAdj = -Infinity;
+    for (var i = 0; i < expCands.length; i++) {
+      var c = expCands[i];
+      if (usedSig[c.signature]) continue;
+      if (level === 0 && conflicts(c.items)) continue;
+      if (level === 1 && conflicts(c.items, { bottom:1, bag:1 })) continue;
+      if (hasBags && !bagOfLook(c.items)) continue;   /* 가방은 한 벌에 하나씩 (11개라 늘 가능) */
+      var flavor = c.flavor || lookFlavorOf(c.items);
+      if (targetFlavor && flavor !== targetFlavor) continue;       /* 이 자리는 그 성격만 */
+      var fresh = 0;
+      c.items.forEach(function(it){ if (!usedItems[it.id]) fresh++; });
+      var adj = c.score + fresh * 4;
+      /* 바로 전 세트에 나온 옷은 뒤로 (같은 하의·가방만 도는 걸 막는 1차 장치) */
+      if (seenRecently(c.items)) adj -= 44;
+      if (c.hero && heroUsed[c.hero]) adj -= 40;
+      var bag = bagOfLook(c.items);
+      if (bag && bagColorUsed[bag.colorName || '-']) adj -= 24;
+      var oc = c.items.filter(function(it){ return it.category === 'outer'; })[0];
+      if (oc && outerColorUsed[oc.colorName || '-']) adj -= 14;
+      if (schemeUsed[flavor]) adj -= 16;
+      if (!fresh) adj -= 12;
+      if (REC_SEED > 0) adj += (seedRnd() - 0.5) * 8;
+      if (adj > bestAdj) { bestAdj = adj; best = c; }
+    }
+    return best;
+  }
+
+  var expLevel = 0;
+  while (expLooks.length < 3 && expLevel <= 2) {
+    /* 아직 안 나온 성격을 앞에서부터 시도한다: 엄격하게 → 겹침을 풀고 → 아무 성격이나 */
+    var targets = EXP_FLAVORS.filter(function(f){ return !schemeUsed[f]; });
+    var pickE = null;
+    for (var ti = 0; ti < targets.length && !pickE; ti++) pickE = pickExp(targets[ti], expLevel);
+    if (!pickE && expLevel < 2) { expLevel++; continue; }
+    if (!pickE) pickE = pickExp('', expLevel);
+    if (!pickE) break;
+    schemeUsed[lookFlavorOf(pickE.items)] = 1;
+    expLooks.push(commit(pickE, 'exp', bestMoodFor(pickE.items), expCands));
+  }
+
+  /* ── 2) 데일리 무난 2개: 실험 코디가 쓴 상의·하의·가방은 빼고 뽑는다 ── */
   var pools = [];
   MOODS.forEach(function(mood){
     if (!moodIsAvailable(mood)) return;
-    var cands = buildCandidates(mood, T);
-    cands.forEach(function(c){ c.style = lookStyleInfo(c.items, 'safe'); });
+    var cands = buildCandidates(mood, T, { exclude: catUsed });
+    cands.forEach(function(c){
+      c.style = lookStyleInfo(c.items, 'safe');
+      c.score = c.score - recLookPenalty(c.items);
+    });
     state.lookPool[mood.key] = cands;
     if (cands.length) pools.push({ mood:mood, cands:cands });
   });
@@ -2416,131 +2658,80 @@ function computeLooks(T){
     return b.cands[0].score - a.cands[0].score;
   });
 
-  var used = {};
-  var usedItems = {};
-  var bagUsed = {};
-  function bagOf(items){ return items.filter(function(i){ return i.category === 'bag'; })[0] || null; }
-
-  /* 이미 고른 코디와 최소 minDiff벌은 달라야 한다(무드가 달라도 같은 옷만 바꿔 입은 듯한 카드는 피함)
-     무난 코디는 유사색이 적은 조합을 우선해 '기본 톤'을 지킨다. */
-  function chooseFor(p, minDiff, requireKey){
+  var safeLooks = [];
+  function chooseFor(p, level){
     var list = [];
     for (var i = 0; i < p.cands.length; i++) {
       var c = p.cands[i];
-      if (used[c.signature]) continue;
-      if (requireKey && !c.items.some(function(it){ return isMoodKeyPiece(it, p.mood.key); })) continue;
-      var fresh = c.items.filter(function(it){ return !usedItems[it.id]; }).length;
-      if (fresh < minDiff) continue;
+      if (usedSig[c.signature]) continue;
+      if (level === 0 && conflicts(c.items)) continue;
+      if (level === 1 && conflicts(c.items, { bottom:1, bag:1 })) continue;
+      if (hasBags && !bagOfLook(c.items)) continue;   /* 데일리 카드도 가방 하나는 들게 */
+      var fresh = 0;
+      c.items.forEach(function(it){ if (!usedItems[it.id]) fresh++; });
       var vivid = c.style ? c.style.palette.vivid : 0;
-      var bagVivid = c.style && isVividFamily(c.style.palette.bagFamily) ? 1 : 0;
-      var styleBonus = vivid === 0 ? (bagVivid ? 4 : 12) : (vivid === 1 ? (bagVivid ? -8 : -6) : -40);
-      var bg = bagOf(c.items);
-      if (bg && bagUsed[bg.colorName || '-']) styleBonus -= 6;
-      list.push({ c:c, adj: c.score + styleBonus - (c.items.length - fresh) * 6 });
+      var bagFam = c.style ? c.style.palette.bagFamily : '';
+      var bagColored = !!bagFam && bagFam !== 'neutral' && bagFam !== 'metal';
+      var adj = c.score;
+      /* 무드의 핵심 아이템은 강하게 선호하되, 바로 전 세트에 나온 옷이면 다른 코디를 고른다 */
+      if (c.items.some(function(it){ return isMoodKeyPiece(it, p.mood.key); })) adj += 26;
+      if (fresh >= 2) adj += 12; else if (fresh === 1) adj += 2; else adj -= 16;
+      adj += vivid === 0 ? (bagColored ? -14 : 12) : (vivid === 1 ? -10 : -40);
+      var bg = bagOfLook(c.items);
+      if (bg && bagColorUsed[bg.colorName || '-']) adj -= 8;
+      if (seenRecently(c.items)) adj -= 44;
+      list.push({ c:c, adj:adj });
     }
     if (!list.length) return null;
     list.sort(function(a, b){ return b.adj - a.adj; });
-    var top = Math.min(REC_SEED > 0 ? 4 : 1, list.length);
-    var idx = top > 1 ? Math.floor(seedRnd() * top) : 0;
+    var topN = Math.min(REC_SEED > 0 ? 3 : 1, list.length);
+    var idx = topN > 1 ? Math.floor(seedRnd() * topN) : 0;
     return list[idx].c;
   }
 
-  /* ── 1) 무난·데일리 코디 (최대 5개까지만 뽑고 실제로는 2~3개 사용) ── */
-  var safeLooks = [];
-  pools.forEach(function(p){
-    if (safeLooks.length >= 5) return;
-    var needKey = closetHasMoodKey(p.mood.key);
-    var pick = (needKey ? chooseFor(p, 2, true) : null) ||
-               (needKey ? chooseFor(p, 1, true) : null) ||
-               chooseFor(p, 2, false) ||
-               chooseFor(p, 1, false) ||
-               chooseFor(p, 0, false);
-    if (!pick) return;
-    used[pick.signature] = 1;
-    pick.items.forEach(function(it){ usedItems[it.id] = 1; });
-    var sb = bagOf(pick.items);
-    if (sb) bagUsed[sb.colorName || '-'] = 1;
-    safeLooks.push({
-      kind:'safe',
-      moodKey: p.mood.key,
-      mood: p.mood,
-      signature: pick.signature,
-      items: pick.items,
-      candidates: p.cands,
-      candidateIndex: p.cands.indexOf(pick)
-    });
-  });
-
-  /* ── 2) 실험적 · 핀터 감성 색조합 코디 ── */
-  var expCands = buildColorCandidates(T);
-  var expLooks = [];
-  var heroUsed = {}, schemeUsed = {}, outerUsed = {};
-  while (expLooks.length < 3) {
-    var best = null, bestAdj = -Infinity;
-    for (var i = 0; i < expCands.length; i++) {
-      var c = expCands[i];
-      if (used[c.signature]) continue;
-      var st = lookStyleInfo(c.items, 'exp');
-      var fresh = c.items.filter(function(it){ return !usedItems[it.id]; }).length;
-      var adj = c.score + fresh * 4;
-      if (c.hero && heroUsed[c.hero]) adj -= 40;
-      if (schemeUsed[st.contrast ? 'contrast' : 'soft']) adj -= 10;
-      var oc = c.items.filter(function(it){ return it.category === 'outer'; })[0];
-      var ocName = oc ? (oc.colorName || '-') : '-';
-      if (outerUsed[ocName]) adj -= 14;
-      var cb = bagOf(c.items);
-      if (cb && bagUsed[cb.colorName || '-']) adj -= 10;
-      if (fresh === 0) adj -= 12;
-      if (REC_SEED > 0) adj += (seedRnd() - 0.5) * 6;
-      if (adj > bestAdj) { bestAdj = adj; best = c; }
-    }
-    if (!best) break;
-    var bst = lookStyleInfo(best.items, 'exp');
-    used[best.signature] = 1;
-    best.items.forEach(function(it){ usedItems[it.id] = 1; });
-    if (best.hero) heroUsed[best.hero] = 1;
-    schemeUsed[bst.contrast ? 'contrast' : 'soft'] = 1;
-    var bo = best.items.filter(function(it){ return it.category === 'outer'; })[0];
-    if (bo) outerUsed[bo.colorName || '-'] = 1;
-    var bb = bagOf(best.items);
-    if (bb) bagUsed[bb.colorName || '-'] = 1;
-    expLooks.push({
-      kind:'exp',
-      moodKey: bestMoodFor(best.items).key,
-      mood: bestMoodFor(best.items),
-      signature: best.signature,
-      items: best.items,
-      candidates: expCands,
-      candidateIndex: expCands.indexOf(best)
+  function orderedPools(){
+    return pools.slice().sort(function(a, b){
+      return (moodUsed[a.mood.key] ? 1 : 0) - (moodUsed[b.mood.key] ? 1 : 0);
     });
   }
 
-  /* ── 3) 5장 = 무난 3 + 실험 2 (한쪽이 부족하면 2/3으로 기운다) ── */
-  var nSafe = Math.min(3, safeLooks.length);
-  var nExp = Math.min(2, expLooks.length);
-  if (nExp < 2) nSafe = Math.min(5 - nExp, safeLooks.length);
-  if (nSafe < 3) nExp = Math.min(5 - nSafe, expLooks.length);
-  while (nSafe + nExp < 5) {
-    if (nSafe < safeLooks.length) nSafe++;
-    else if (nExp < expLooks.length) nExp++;
+  var safeTarget = Math.min(5 - expLooks.length, 5);
+  var safeLevel = 0;
+  while (safeLooks.length < safeTarget && safeLevel <= 2) {
+    var order = orderedPools(), added = false;
+    for (var pi = 0; pi < order.length && !added; pi++) {
+      var p = order[pi];
+      var pickS = chooseFor(p, safeLevel);
+      if (!pickS) continue;
+      safeLooks.push(commit(pickS, 'safe', p.mood, p.cands));
+      added = true;
+    }
+    if (!added) safeLevel++;
+  }
+
+  /* ── 3) 5장 = 실험 3 + 무난 2 (한쪽이 부족하면 있는 만큼) ── */
+  var nExp = Math.min(3, expLooks.length);
+  var nSafe = Math.min(5 - nExp, safeLooks.length);
+  while (nExp + nSafe < 5) {
+    if (nExp < expLooks.length) nExp++;
+    else if (nSafe < safeLooks.length) nSafe++;
     else break;
   }
 
-  /* 무난 → 핀터 → 무난 → 핀터 → 무난 순서로 섞어 스와이프 중간에 색조합이 보이게 */
+  /* 실험 → 무난 → 실험 → 무난 → 실험 순서로 섞어 첫 장부터 핀터 감성이 보이게 */
   var looks = [];
-  var sArr = safeLooks.slice(0, nSafe), eArr = expLooks.slice(0, nExp);
-  var si = 0, ei = 0, turnSafe = true;
-  while (si < sArr.length || ei < eArr.length) {
-    if (turnSafe && si < sArr.length) looks.push(sArr[si++]);
-    else if (ei < eArr.length) looks.push(eArr[ei++]);
+  var eArr = expLooks.slice(0, nExp), sArr = safeLooks.slice(0, nSafe);
+  var ei = 0, si = 0, turnExp = true;
+  while (ei < eArr.length || si < sArr.length) {
+    if (turnExp && ei < eArr.length) looks.push(eArr[ei++]);
     else if (si < sArr.length) looks.push(sArr[si++]);
-    turnSafe = !turnSafe;
+    else if (ei < eArr.length) looks.push(eArr[ei++]);
+    turnExp = !turnExp;
   }
 
   state.looks = looks;
   return looks;
 }
-
 /* 옷장에 그 기온에 맞는 옷이 한 벌도 없을 때만 온도 여유를 넓혀 한 번 더 시도한다 */
 function recomputeLooks(){
   var T = effectiveTemp();
@@ -2552,6 +2743,7 @@ function recomputeLooks(){
     TEMP_MARGIN_BOOST = 0;
   }
   state.looks = looks;
+  recHistoryRecord(looks);
   return looks;
 }
 
@@ -4276,21 +4468,35 @@ function dislikeLook(index){
 function cycleLook(index){
   var look = state.looks[index];
   if (!look || !look.candidates || look.candidates.length < 2) { toast('이 무드에서 다른 조합을 찾지 못했어요'); return false; }
-  var used = {};
-  state.looks.forEach(function(l, i){ if (i !== index) used[l.signature] = 1; });
+  var used = {}, usedCat = { top:{}, bottom:{}, dress:{}, bag:{} };
+  state.looks.forEach(function(l, i){
+    if (i === index) return;
+    used[l.signature] = 1;
+    l.items.forEach(function(it){ if (UNIQUE_CATS[it.category]) usedCat[it.category][it.id] = 1; });
+  });
   var start = look.candidateIndex || 0;
-  for (var step = 1; step <= look.candidates.length; step++) {
-    var idx = (start + step) % look.candidates.length;
-    var cand = look.candidates[idx];
-    if (used[cand.signature] || isDisliked(cand.signature)) continue;
-    /* 무난 카드는 무난 조합만, 실험 카드는 색조합만 돌려 준다 */
-    var st = lookStyleInfo(cand.items, look.kind || 'safe');
-    if ((look.kind || 'safe') === 'safe' && st.exp) continue;
-    look.signature = cand.signature;
-    look.items = cand.items;
-    look.candidateIndex = idx;
-    renderLooks();
+  function fits(cand, strict){
+    if (used[cand.signature] || isDisliked(cand.signature)) return false;
+    /* 다른 카드가 쓴 상의·하의·가방은 피한다(먼저 엄격하게, 안 되면 느슨하게) */
+    if (strict && cand.items.some(function(it){
+      return UNIQUE_CATS[it.category] && usedCat[it.category][it.id];
+    })) return false;
     return true;
+  }
+  for (var pass = 0; pass < 2; pass++) {
+    for (var step = 1; step <= look.candidates.length; step++) {
+      var idx = (start + step) % look.candidates.length;
+      var cand = look.candidates[idx];
+      if (!fits(cand, pass === 0)) continue;
+      /* 무난 카드는 무난 조합만, 실험 카드는 색조합만 돌려 준다 */
+      var st = lookStyleInfo(cand.items, look.kind || 'safe');
+      if ((look.kind || 'safe') === 'safe' && st.exp) continue;
+      look.signature = cand.signature;
+      look.items = cand.items;
+      look.candidateIndex = idx;
+      renderLooks();
+      return true;
+    }
   }
   toast('다른 조합을 찾지 못했어요');
   return false;
@@ -4546,16 +4752,22 @@ function bindEvents(){
   }
 
   $('#refreshBtn').addEventListener('click', function(){
-    /* 누를 때마다 무난/실험 비율은 유지하고 조합만 새로 뽑는다 */
-    var before = state.looks.map(function(l){ return l.signature; }).join(';');
-    for (var i = 0; i < 6; i++) {
+    /* 실험 3 + 무난 2 비율은 유지하고, 직전 세트에 없던 카드로 새로 뽑는다.
+       한 장이라도 겹치면 시드를 바꿔 다시 뽑고, 3번까지 겹치면 그중 가장 덜 겹친 세트를 쓴다. */
+    var before = state.looks.map(function(l){ return l.signature; });
+    var best = null, bestSame = 99;
+    for (var i = 0; i < 3; i++) {
       bumpRecSeed();
-      recomputeLooks();
-      var after = state.looks.map(function(l){ return l.signature; }).join(';');
-      if (state.looks.length && after !== before) break;
+      var looks = recomputeLooks();
+      if (!looks.length) continue;
+      var same = 0;
+      looks.forEach(function(l){ if (before.indexOf(l.signature) >= 0) same++; });
+      if (same < bestSame) { bestSame = same; best = looks; }
+      if (same === 0) break;
     }
+    if (best && bestSame > 0 && best !== state.looks) state.looks = best;
     renderLooks();
-    toast('새로 추천했어요');
+    toast(bestSame === 0 ? '새로 추천했어요 — 이번엔 5장 모두 새 코디예요' : '새로 추천했어요');
   });
 
   /* 가로 스와이프: 스크롤이 멈추면 1/5 인디케이터를 갱신 */
