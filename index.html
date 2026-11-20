@@ -2540,7 +2540,7 @@ function recLookPenalty(items){
   (items || []).forEach(function(it){
     var h = recRecentHit(it.id);
     if (!h) return;
-    var base = it.category === 'bag' ? 16 : (it.category === 'bottom' ? 14 : (it.category === 'top' ? 10 : 4));
+    var base = it.category === 'bag' ? 20 : (it.category === 'bottom' ? 18 : (it.category === 'top' ? 14 : 4));
     pen += base / h;
   });
   return pen;
@@ -2618,6 +2618,8 @@ function computeLooks(T){
       if (oc && outerColorUsed[oc.colorName || '-']) adj -= 14;
       if (schemeUsed[flavor]) adj -= 16;
       if (!fresh) adj -= 12;
+      /* 마지막 단계(겹침 허용)에서도 다른 옷이 있으면 겹치지 않는 쪽을 고른다 */
+      if (level >= 2 && conflicts(c.items)) adj -= 60;
       if (REC_SEED > 0) adj += (seedRnd() - 0.5) * 8;
       if (adj > bestAdj) { bestAdj = adj; best = c; }
     }
