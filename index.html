@@ -2534,6 +2534,21 @@ function recRecentHit(id){
 }
 function recLastSetHas(id){ return recRecentHit(id) === 1; }
 
+/* 최근 세트에 나왔던 코디(서명)인가 — 같은 카드가 그대로 다시 나오는 것을 막는다 */
+function recSignaturePenalty(items){
+  var sig = signatureOf(items);
+  for (var i = 0; i < REC_HISTORY.length; i++) {
+    var key = REC_HISTORY[i] && REC_HISTORY[i].key;
+    if (key && key.split(';').indexOf(sig) >= 0) return i === 0 ? 120 : 70;
+  }
+  return 0;
+}
+function recRecentLookSignatures(){
+  var out = [];
+  REC_HISTORY.forEach(function(h){ if (h && h.key) out = out.concat(h.key.split(';')); });
+  return out;
+}
+
 /* 코디에 최근에 쓴 옷이 많을수록 감점 (하의·가방을 특히 강하게) */
 function recLookPenalty(items){
   var pen = 0;
@@ -2609,8 +2624,9 @@ function computeLooks(T){
       var fresh = 0;
       c.items.forEach(function(it){ if (!usedItems[it.id]) fresh++; });
       var adj = c.score + fresh * 4;
-      /* 바로 전 세트에 나온 옷은 뒤로 (같은 하의·가방만 도는 걸 막는 1차 장치) */
+      /* 바로 전 세트에 나온 옷은 뒤로, 똑같은 카드는 더 강하게 뒤로 */
       if (seenRecently(c.items)) adj -= 44;
+      adj -= recSignaturePenalty(c.items);
       if (c.hero && heroUsed[c.hero]) adj -= 40;
       var bag = bagOfLook(c.items);
       if (bag && bagColorUsed[bag.colorName || '-']) adj -= 24;
@@ -4756,7 +4772,8 @@ function bindEvents(){
   $('#refreshBtn').addEventListener('click', function(){
     /* 실험 3 + 무난 2 비율은 유지하고, 직전 세트에 없던 카드로 새로 뽑는다.
        한 장이라도 겹치면 시드를 바꿔 다시 뽑고, 3번까지 겹치면 그중 가장 덜 겹친 세트를 쓴다. */
-    var before = state.looks.map(function(l){ return l.signature; });
+    /* 직전 3세트에 나온 카드와 겹치지 않게 — 같은 코디가 다시 돌아오는 것까지 막는다 */
+    var before = recRecentLookSignatures();
     var best = null, bestSame = 99;
     for (var i = 0; i < 3; i++) {
       bumpRecSeed();
