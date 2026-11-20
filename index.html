@@ -2622,9 +2622,10 @@ function openRegionSearch(open){
   var btn = $('[data-action="region-open"]');
   if (btn) btn.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
   if (shouldOpen) {
+    var input = $('#regionInput');
+    if (input) input.value = '';
     renderRegionSuggest(null);
     setWeatherMsg(REGION_HELP);
-    var input = $('#regionInput');
     if (input) { try { input.focus(); } catch (e) {} }
   }
 }
@@ -3621,6 +3622,13 @@ function exportData(){
 
 function bindEvents(){
   document.addEventListener('click', function(e){
+    /* 지역 검색 패널 밖을 누르면 닫기 */
+    var panel = $('#weatherSearch');
+    if (panel && !panel.classList.contains('hidden') &&
+        !e.target.closest('#weatherSearch') && !e.target.closest('[data-action="region-open"]')) {
+      openRegionSearch(false);
+    }
+
     var tabBtn = e.target.closest('[data-tab]');
     if (tabBtn) { switchTab(tabBtn.getAttribute('data-tab')); return; }
 
