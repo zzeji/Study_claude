@@ -655,7 +655,7 @@
     <section class="view hidden" id="view-closet">
       <div class="section-head">
         <h2>내 옷장 <span id="closetCount"></span></h2>
-        <button class="ghost-btn" id="closetResetBtn">구매 목록 35벌 불러오기</button>
+        <button class="ghost-btn" id="closetResetBtn">기본 옷장 103벌 불러오기</button>
       </div>
       <div id="closetList"></div>
       <button class="primary-btn wide" id="closetAddBtn" style="margin:6px 0 14px">+ 옷 등록하기</button>
@@ -675,7 +675,7 @@
         <div class="divider"></div>
         <div style="display:flex; gap:8px; flex-wrap:wrap">
           <button class="secondary-btn" id="exportBtn">데이터 내보내기</button>
-          <button class="secondary-btn" id="resetWardrobeBtn">구매 목록 35벌 불러오기</button>
+          <button class="secondary-btn" id="resetWardrobeBtn">기본 옷장 103벌 불러오기</button>
           <button class="secondary-btn" id="resetAllBtn" style="color:var(--danger)">전체 초기화</button>
         </div>
         <p class="hint" id="storageHint"></p>
@@ -723,16 +723,16 @@
 /* ══════════════════════════════════════════════════════════════
    0. 상수 · 스키마
    ══════════════════════════════════════════════════════════════ */
-var APP_VERSION = '1.3.0';
-var SCHEMA_VERSION = 3;
+var APP_VERSION = '1.4.0';
+var SCHEMA_VERSION = 4;
 var STORAGE_KEY = 'wardrobeApp.v1';
 
 /* 누끼(배경 제거) 이미지 위치 — GitHub(zzeji/Study_claude)에 올린 cutouts/*.png 를 그대로 참조 */
 var CUTOUT_BASE = 'https://raw.githubusercontent.com/zzeji/Study_claude/main/cutouts/';
 var CUTOUT_LOCAL = 'cutouts/';
-var CUTOUT_VER = '?v=2';  /* 배포 갱신 시 올린다 — 브라우저·CDN 캐시 회피 */
+var CUTOUT_VER = '?v=3';  /* 배포 갱신 시 올린다 — 브라우저·CDN 캐시 회피 */
 
-/* 누끼를 만들어 둔 전체 상품 id (구매 목록 35벌) */
+/* 누끼를 만들어 둔 전체 상품 id (구매 목록 35벌 + 백업 68벌) */
 var CUTOUT_IDS = (
   'ms-3155032-17,ms-3994695-12,ms-4055683-11,ms-4326509-9,ms-4644651-1,ms-4687212-10,' +
   'ms-5168590-8,ms-5942667-18,ms-6013647-15,ms-6146506-6,ms-6317830-14,ms-6405693-4,' +
@@ -742,6 +742,24 @@ var CUTOUT_IDS = (
   'zz-168847612-20,zz-168847612-21,zz-168857924-29,zz-169309872-13,zz-169384173-14,zz-169809871-12,' +
   'zz-170224782-7'
 ).split(',');
+/* BACKUP_CUTOUT_BEGIN */
+/* 백업 옷장 68벌 누끼 — cutouts/bk-*.png */
+var BACKUP_CUTOUT_IDS = (
+  'bk-muv8v29hi9ke,bk-muv8yo3rzues,bk-muv8zho02hms,bk-muv905dp0piw,bk-muv90q61qz72,bk-muv91hgi0w8f' +
+  'bk-muv9b3miwd89,bk-muv9djxcn02w,bk-muv9kh2w5g8v,bk-muv9l0sq0kkz,bk-muv9ln3x4n38,bk-muv9uqcyyaig' +
+  'bk-muv9xai83odc,bk-muva05q2wjj6,bk-muva0mrt6v1g,bk-muva7b8w94jz,bk-muvaemrlyusb,bk-muvalaumgnm8' +
+  'bk-muvalraodhb1,bk-muvamd1de3s3,bk-muvamyvt5cjm,bk-muvangnalaef,bk-muvao210l7we,bk-muvaosm6s8mj' +
+  'bk-muvapntv602y,bk-muvb088rb130,bk-muvb1axiqjhw,bk-muvb5w1pmvaj,bk-muve8rnwqsei,bk-muve9lell462' +
+  'bk-muvea8tn325c,bk-muvec24b2wef,bk-muvecj7k8icx,bk-muvee6isykn5,bk-muvefzca83og,bk-muvek01hpxyz' +
+  'bk-muveo3wymhu5,bk-muveotg38l43,bk-muvepu2444c4,bk-muvesgs5jvkn,bk-muvetisqtelu,bk-muveu7qdwbjp' +
+  'bk-muvewifdqhe2,bk-muvey2756qgr,bk-muvfdl8i8nbe,bk-muvfmpnzerh9,bk-muvfncptfa1z,bk-muvfo2xj6z9n' +
+  'bk-muvfoqr2l8gx,bk-muvfpoa8ewva,bk-muvfqbyg6ppj,bk-muvfv4dgnmp4,bk-muvfvt5fuug8,bk-muvfxa8fbymh' +
+  'bk-muvfza3b4dps,bk-muvg1ycux865,bk-muvg2krr0xzg,bk-muvg4dei9i9t,bk-muw4vk68y9l0,bk-muw4vxaelwwy' +
+  'bk-muw4wj14p0hr,bk-muw5b82pwzh0,bk-muw5bzkhrdjw,bk-muw5cshyue2d,bk-muw5dhah6e42,bk-muw5dyswi570' +
+  'bk-muw5jejdpm5f,bk-muw5ljmwzkho'
+).split(',');
+CUTOUT_IDS = CUTOUT_IDS.concat(BACKUP_CUTOUT_IDS);
+/* BACKUP_CUTOUT_END */
 var CUTOUT_SET = {};
 CUTOUT_IDS.forEach(function(id){ CUTOUT_SET[id] = 1; });
 
@@ -1051,6 +1069,101 @@ var PURCHASED_WARDROBE = {
   ]
 };;
 
+/* BACKUP_DATA_BEGIN */
+/* ══════════════════════════════════════════════════════════════
+   3-b. 백업 옷장 68벌 (2026-11-20 통합)
+   - 출처: 사용자 백업 파일 my-closet-backup(68벌: 상의 34·하의 18·가방 11·아우터 4·원피스 1)
+   - 백업에 이미 있던 속성(카테고리·소재·색·두께·기장·핏·무드)을 앱 스키마로 옮겼고,
+     적정 온도는 앱 TEMP_HINTS[카테고리][소재] 기준 + 두께·기장 보정으로 계산했다.
+   - 속성이 모두 채워져 있어 처음부터 검수 완료 상태로 들어간다.
+   ══════════════════════════════════════════════════════════════ */
+var BACKUP_WARDROBE = {
+  generatedAt: "2026-11-20T12:40:00+09:00",
+  items: [
+    {"id": "bk-muv8v29hi9ke", "name": "회색 비비안 니트", "category": "top", "colorName": "그레이", "materialKey": "knit", "materialRaw": "니트(아크릴)", "seasons": ["봄", "가을", "겨울"], "tempMin": -2, "tempMax": 16, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muv8yo3rzues", "name": "폴로 자주색 니트", "category": "top", "colorName": "버건디", "materialKey": "knit", "materialRaw": "니트(아크릴)", "seasons": ["봄", "가을", "겨울"], "tempMin": -2, "tempMax": 16, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muv8zho02hms", "name": "캐시미어 자주색 니트", "category": "top", "colorName": "버건디", "materialKey": "cashmere", "materialRaw": "캐시미어", "seasons": ["봄", "가을", "겨울"], "tempMin": -6, "tempMax": 12, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3, "warm_cozy": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muv905dp0piw", "name": "회색 디올 니트", "category": "top", "colorName": "그레이", "materialKey": "knit", "materialRaw": "니트(아크릴)", "seasons": ["봄", "가을", "겨울"], "tempMin": -2, "tempMax": 16, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muv90q61qz72", "name": "와인색 디올 니트", "category": "top", "colorName": "버건디", "materialKey": "knit", "materialRaw": "니트(아크릴)", "seasons": ["봄", "가을", "겨울"], "tempMin": -2, "tempMax": 16, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muv91hgi0w8f", "name": "아이보리 디올니트", "category": "top", "colorName": "아이보리", "materialKey": "knit", "materialRaw": "니트(아크릴)", "seasons": ["봄", "가을", "겨울"], "tempMin": -4, "tempMax": 14, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3, "warm_cozy": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muv9b3miwd89", "name": "리얼코코 브라운 바지", "category": "bottom", "colorName": "브라운", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 6, "tempMax": 28, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴바지", "fit": "스트레이트", "look": "캐주얼", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muv9djxcn02w", "name": "비비안 빨강 니트", "category": "top", "colorName": "레드", "materialKey": "knit", "materialRaw": "니트(아크릴)", "seasons": ["봄", "가을", "겨울"], "tempMin": -4, "tempMax": 14, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3, "warm_cozy": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muv9kh2w5g8v", "name": "비비안 딱붙 원피스", "category": "dress", "colorName": "차콜", "materialKey": "cotton", "materialRaw": "면", "seasons": ["여름"], "tempMin": 16, "tempMax": 36, "formality": 4, "moods": {"feminine_layer": 4, "minimal_office": 2}, "style": "반팔", "fit": "레귤러", "look": "페미닌", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muv9l0sq0kkz", "name": "버버리 긴팔", "category": "top", "colorName": "블랙", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 12, "tempMax": 30, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴팔", "fit": "레귤러", "look": "캐주얼", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muv9ln3x4n38", "name": "비비안 회색 가디건", "category": "top", "colorName": "그레이", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 12, "tempMax": 30, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muv9uqcyyaig", "name": "리얼코코 연청 바지 여름용", "category": "bottom", "colorName": "스카이 블루", "materialKey": "denim", "materialRaw": "데님", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": 1, "tempMax": 30, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴바지", "fit": "스트레이트", "look": "캐주얼", "thick": 1, "otype": "", "lvAdj": -1},
+    {"id": "bk-muv9xai83odc", "name": "리얼코코 진청바지(기모)", "category": "bottom", "colorName": "네이비", "materialKey": "denim", "materialRaw": "데님", "seasons": ["봄", "가을", "겨울"], "tempMin": -5, "tempMax": 24, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴바지", "fit": "스트레이트", "look": "캐주얼", "thick": 3, "otype": "", "lvAdj": 0},
+    {"id": "bk-muva05q2wjj6", "name": "리얼코코 시오니트 라이트 그레이", "category": "top", "colorName": "그레이", "materialKey": "knit", "materialRaw": "니트(아크릴)", "seasons": ["봄", "가을", "겨울"], "tempMin": -4, "tempMax": 14, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3, "warm_cozy": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muva0mrt6v1g", "name": "리얼코코 시오니트 올리브", "category": "top", "colorName": "올리브", "materialKey": "knit", "materialRaw": "니트(아크릴)", "seasons": ["봄", "가을", "겨울"], "tempMin": -4, "tempMax": 14, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3, "warm_cozy": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muva7b8w94jz", "name": "페레가모 아이보리 만두", "category": "bag", "colorName": "아이보리", "materialKey": "leather", "materialRaw": "가죽", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": -10, "tempMax": 32, "formality": 3, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "숄더백", "fit": "", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvaemrlyusb", "name": "버니카골", "category": "bag", "colorName": "핑크", "materialKey": "leather", "materialRaw": "가죽", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": -10, "tempMax": 32, "formality": 3, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "크로스백", "fit": "", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvalaumgnm8", "name": "르메르 크로와상", "category": "bag", "colorName": "올리브", "materialKey": "leather", "materialRaw": "가죽", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": -10, "tempMax": 32, "formality": 3, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "크로스백", "fit": "", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvalraodhb1", "name": "셀린느", "category": "bag", "colorName": "카멜", "materialKey": "leather", "materialRaw": "가죽", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": -10, "tempMax": 32, "formality": 3, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "크로스백", "fit": "", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvamd1de3s3", "name": "발렌시아가 시티", "category": "bag", "colorName": "카멜", "materialKey": "leather", "materialRaw": "가죽", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": -10, "tempMax": 32, "formality": 3, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "숄더백", "fit": "", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvamyvt5cjm", "name": "꾸레쥬 반팔", "category": "top", "colorName": "블랙", "materialKey": "cotton", "materialRaw": "면", "seasons": ["여름"], "tempMin": 16, "tempMax": 34, "formality": 2, "moods": {"casual_daily": 4}, "style": "반팔", "fit": "레귤러", "look": "캐주얼", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvangnalaef", "name": "연노랑 디올니트", "category": "top", "colorName": "옐로우", "materialKey": "knit", "materialRaw": "니트(아크릴)", "seasons": ["봄", "가을", "겨울"], "tempMin": -4, "tempMax": 14, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3, "warm_cozy": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvao210l7we", "name": "마르디 꽃 맨투맨", "category": "top", "colorName": "아이보리", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 10, "tempMax": 28, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴팔", "fit": "레귤러", "look": "캐주얼", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvaosm6s8mj", "name": "마르디 강아지 맨투맨", "category": "top", "colorName": "그레이", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 10, "tempMax": 28, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴팔", "fit": "레귤러", "look": "캐주얼", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvapntv602y", "name": "마르디 남색 맨투맨", "category": "top", "colorName": "네이비", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 10, "tempMax": 28, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴팔", "fit": "레귤러", "look": "캐주얼", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvb088rb130", "name": "막마 테디 코트", "category": "outer", "colorName": "카멜", "materialKey": "wool", "materialRaw": "울", "seasons": ["겨울"], "tempMin": -18, "tempMax": 2, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3, "warm_cozy": 3}, "style": "긴 기장", "fit": "레귤러", "look": "미니멀", "thick": 3, "otype": "코트", "lvAdj": 2},
+    {"id": "bk-muvb1axiqjhw", "name": "막마 아이보리 코트", "category": "outer", "colorName": "아이보리", "materialKey": "wool", "materialRaw": "울", "seasons": ["겨울"], "tempMin": -15, "tempMax": 5, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3, "warm_cozy": 3}, "style": "짧은 기장", "fit": "레귤러", "look": "미니멀", "thick": 3, "otype": "코트", "lvAdj": 1},
+    {"id": "bk-muvb5w1pmvaj", "name": "루이비통 도핀", "category": "bag", "colorName": "브라운", "materialKey": "leather", "materialRaw": "가죽", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": -10, "tempMax": 32, "formality": 3, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "숄더백", "fit": "", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muve8rnwqsei", "name": "카네 와이드 조거팬츠", "category": "bottom", "colorName": "화이트", "materialKey": "nylon", "materialRaw": "나일론", "seasons": ["봄", "여름", "가을"], "tempMin": 6, "tempMax": 32, "formality": 2, "moods": {"sporty_active": 4, "casual_daily": 2}, "style": "반바지", "fit": "와이드", "look": "스포티", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muve9lell462", "name": "Ootj 바지", "category": "bottom", "colorName": "블랙", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 8, "tempMax": 30, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴바지", "fit": "스트레이트", "look": "캐주얼", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvea8tn325c", "name": "스웨이드 하프 코트", "category": "outer", "colorName": "브라운", "materialKey": "leather", "materialRaw": "스웨이드", "seasons": ["봄", "가을", "겨울"], "tempMin": -3, "tempMax": 13, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "짧은 기장", "fit": "레귤러", "look": "미니멀", "thick": 2, "otype": "재킷", "lvAdj": 0},
+    {"id": "bk-muvec24b2wef", "name": "레이어드티", "category": "top", "colorName": "올리브", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 12, "tempMax": 30, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴팔", "fit": "레귤러", "look": "캐주얼", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvecj7k8icx", "name": "레이어드티", "category": "top", "colorName": "블랙", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 12, "tempMax": 30, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴팔", "fit": "레귤러", "look": "캐주얼", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvee6isykn5", "name": "트위드 콩자켓", "category": "outer", "colorName": "그레이", "materialKey": "wool", "materialRaw": "울", "seasons": ["겨울"], "tempMin": -11, "tempMax": 9, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3, "warm_cozy": 3}, "style": "짧은 기장", "fit": "레귤러", "look": "미니멀", "thick": 2, "otype": "재킷", "lvAdj": 0},
+    {"id": "bk-muvefzca83og", "name": "래이어드티", "category": "top", "colorName": "차콜", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 10, "tempMax": 28, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴팔", "fit": "레귤러", "look": "캐주얼", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvek01hpxyz", "name": "레드가디건", "category": "top", "colorName": "레드", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 7, "tempMax": 25, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 3, "otype": "", "lvAdj": 0},
+    {"id": "bk-muveo3wymhu5", "name": "맨투맨 기모", "category": "top", "colorName": "베이지", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "가을"], "tempMin": 6, "tempMax": 24, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴팔", "fit": "레귤러", "look": "캐주얼", "thick": 3, "otype": "", "lvAdj": 1},
+    {"id": "bk-muveotg38l43", "name": "스프라이트 롱슬리브", "category": "top", "colorName": "브라운", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 12, "tempMax": 30, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴팔", "fit": "레귤러", "look": "캐주얼", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvepu2444c4", "name": "코듀로이바지", "category": "bottom", "colorName": "베이지", "materialKey": "cotton", "materialRaw": "코듀로이", "seasons": ["봄", "가을", "겨울"], "tempMin": 2, "tempMax": 24, "formality": 2, "moods": {"modern_chic": 2, "casual_daily": 2}, "style": "긴바지", "fit": "스트레이트", "look": "빈티지", "thick": 3, "otype": "", "lvAdj": 1},
+    {"id": "bk-muvesgs5jvkn", "name": "몽돌 니트", "category": "top", "colorName": "옐로우", "materialKey": "knit", "materialRaw": "니트(아크릴)", "seasons": ["겨울"], "tempMin": -8, "tempMax": 10, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3, "warm_cozy": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 3, "otype": "", "lvAdj": 1},
+    {"id": "bk-muvetisqtelu", "name": "코듀로이 캉캉스커트", "category": "bottom", "colorName": "네이비", "materialKey": "cotton", "materialRaw": "코듀로이", "seasons": ["봄", "여름", "가을"], "tempMin": 3, "tempMax": 25, "formality": 2, "moods": {"modern_chic": 2, "casual_daily": 2}, "style": "롱 치마", "fit": "스트레이트", "look": "빈티지", "thick": 3, "otype": "", "lvAdj": 0},
+    {"id": "bk-muveu7qdwbjp", "name": "울시스루 헨리넥", "category": "top", "colorName": "핑크", "materialKey": "wool", "materialRaw": "울", "seasons": ["봄", "가을", "겨울"], "tempMin": -4, "tempMax": 14, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvewifdqhe2", "name": "레이어드 롱 스커트", "category": "bottom", "colorName": "블랙", "materialKey": "nylon", "materialRaw": "나일론", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": 0, "tempMax": 26, "formality": 2, "moods": {"casual_daily": 4}, "style": "롱 치마", "fit": "스트레이트", "look": "캐주얼", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvey2756qgr", "name": "블라우스", "category": "top", "colorName": "그린", "materialKey": "nylon", "materialRaw": "나일론", "seasons": ["봄", "여름", "가을"], "tempMin": 8, "tempMax": 26, "formality": 4, "moods": {"feminine_layer": 4, "minimal_office": 2}, "style": "긴팔", "fit": "레귤러", "look": "페미닌", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvfdl8i8nbe", "name": "여름데님", "category": "bottom", "colorName": "인디고", "materialKey": "denim", "materialRaw": "데님", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": 0, "tempMax": 29, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴바지", "fit": "스트레이트", "look": "캐주얼", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvfmpnzerh9", "name": "르카골", "category": "bag", "colorName": "핑크", "materialKey": "leather", "materialRaw": "가죽", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": -10, "tempMax": 32, "formality": 3, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "크로스백", "fit": "", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvfncptfa1z", "name": "르카골", "category": "bag", "colorName": "블랙", "materialKey": "leather", "materialRaw": "가죽", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": -10, "tempMax": 32, "formality": 3, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "숄더백", "fit": "", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvfo2xj6z9n", "name": "보테가", "category": "bag", "colorName": "아이보리", "materialKey": "leather", "materialRaw": "가죽", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": -10, "tempMax": 32, "formality": 3, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "토트백", "fit": "", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvfoqr2l8gx", "name": "버킷르카골", "category": "bag", "colorName": "핑크", "materialKey": "denim", "materialRaw": "데님", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": -5, "tempMax": 30, "formality": 2, "moods": {"casual_daily": 4}, "style": "크로스백", "fit": "", "look": "캐주얼", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvfpoa8ewva", "name": "시어링 구찌", "category": "bag", "colorName": "블랙", "materialKey": "wool", "materialRaw": "울", "seasons": ["봄", "가을", "겨울"], "tempMin": -10, "tempMax": 20, "formality": 3, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "크로스백", "fit": "", "look": "미니멀", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvfqbyg6ppj", "name": "반팔블라우스", "category": "top", "colorName": "화이트", "materialKey": "cotton", "materialRaw": "면", "seasons": ["여름"], "tempMin": 16, "tempMax": 34, "formality": 4, "moods": {"feminine_layer": 4, "minimal_office": 2}, "style": "반팔", "fit": "레귤러", "look": "페미닌", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvfv4dgnmp4", "name": "파스텔타임 여름 중청 부츠컷", "category": "bottom", "colorName": "인디고", "materialKey": "denim", "materialRaw": "데님", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": 0, "tempMax": 29, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴바지", "fit": "스트레이트", "look": "캐주얼", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvfvt5fuug8", "name": "블라우스", "category": "top", "colorName": "스카이 블루", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 14, "tempMax": 32, "formality": 4, "moods": {"feminine_layer": 4, "minimal_office": 2}, "style": "반팔", "fit": "레귤러", "look": "페미닌", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvfxa8fbymh", "name": "후드 긴팔티", "category": "top", "colorName": "그레이", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 12, "tempMax": 30, "formality": 2, "moods": {"casual_daily": 3, "modern_chic": 2}, "style": "긴팔", "fit": "레귤러", "look": "스트릿", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvfza3b4dps", "name": "고고싱 면바지", "category": "bottom", "colorName": "화이트", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 6, "tempMax": 28, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴바지", "fit": "스트레이트", "look": "캐주얼", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvg1ycux865", "name": "매니크 버튼 와이드", "category": "bottom", "colorName": "인디고", "materialKey": "denim", "materialRaw": "데님", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": -2, "tempMax": 27, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴바지", "fit": "와이드", "look": "캐주얼", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvg2krr0xzg", "name": "프롬비기닝", "category": "bottom", "colorName": "블랙", "materialKey": "denim", "materialRaw": "데님", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": -2, "tempMax": 27, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴바지", "fit": "스트레이트", "look": "캐주얼", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muvg4dei9i9t", "name": "치레깅스", "category": "bottom", "colorName": "블랙", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 6, "tempMax": 28, "formality": 2, "moods": {"sporty_active": 4, "casual_daily": 2}, "style": "긴바지", "fit": "슬림", "look": "스포티", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muw4vk68y9l0", "name": "후드집업", "category": "top", "colorName": "그레이", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 10, "tempMax": 28, "formality": 2, "moods": {"casual_daily": 3, "modern_chic": 2}, "style": "긴팔", "fit": "레귤러", "look": "스트릿", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muw4vxaelwwy", "name": "별 맨투맨", "category": "top", "colorName": "블랙", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 12, "tempMax": 30, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴팔", "fit": "레귤러", "look": "캐주얼", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muw4wj14p0hr", "name": "체크 맨투맨", "category": "top", "colorName": "베이지", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 12, "tempMax": 30, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴팔", "fit": "레귤러", "look": "캐주얼", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muw5b82pwzh0", "name": "여름가디건", "category": "top", "colorName": "카멜", "materialKey": "denim", "materialRaw": "데님", "seasons": ["봄", "여름", "가을"], "tempMin": 6, "tempMax": 26, "formality": 4, "moods": {"minimal_office": 4, "modern_chic": 3}, "style": "긴팔", "fit": "레귤러", "look": "미니멀", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muw5bzkhrdjw", "name": "소라 니트 후드", "category": "top", "colorName": "연청", "materialKey": "knit", "materialRaw": "니트(아크릴)", "seasons": ["봄", "가을", "겨울"], "tempMin": 2, "tempMax": 20, "formality": 2, "moods": {"casual_daily": 3, "modern_chic": 2}, "style": "반팔", "fit": "레귤러", "look": "스트릿", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muw5cshyue2d", "name": "진밤 스프라이트 티", "category": "top", "colorName": "브라운", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 12, "tempMax": 30, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴팔", "fit": "레귤러", "look": "캐주얼", "thick": 1, "otype": "", "lvAdj": 0},
+    {"id": "bk-muw5dhah6e42", "name": "Ootj 카고 팬츠", "category": "bottom", "colorName": "베이지", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 6, "tempMax": 28, "formality": 2, "moods": {"casual_daily": 3, "modern_chic": 2}, "style": "긴바지", "fit": "스트레이트", "look": "스트릿", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muw5dyswi570", "name": "블랙업 슬랙스", "category": "bottom", "colorName": "블랙", "materialKey": "cotton", "materialRaw": "면", "seasons": ["봄", "여름", "가을"], "tempMin": 6, "tempMax": 28, "formality": 4, "moods": {"minimal_office": 5, "modern_chic": 3}, "style": "긴바지", "fit": "스트레이트", "look": "오피스", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muw5jejdpm5f", "name": "중청 치마", "category": "bottom", "colorName": "네이비", "materialKey": "denim", "materialRaw": "데님", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": -2, "tempMax": 27, "formality": 2, "moods": {"casual_daily": 4}, "style": "롱 치마", "fit": "스트레이트", "look": "캐주얼", "thick": 2, "otype": "", "lvAdj": 0},
+    {"id": "bk-muw5ljmwzkho", "name": "파스텔타임 부츠컷 중진청", "category": "bottom", "colorName": "네이비", "materialKey": "denim", "materialRaw": "데님", "seasons": ["봄", "여름", "가을", "겨울"], "tempMin": -2, "tempMax": 27, "formality": 2, "moods": {"casual_daily": 4}, "style": "긴바지", "fit": "스트레이트", "look": "캐주얼", "thick": 2, "otype": "", "lvAdj": 0}
+  ]
+};
+
+/* 백업 앱에서 싫어요/더워요로 보정한 코디 8건 — 그 조합은 다시 추천하지 않는다 */
+var BACKUP_DISLIKES = [
+  {"id": "dl-muysi94m", "signature": "bk-muv90q61qz72|bk-muva7b8w94jz|bk-muvb088rb130|bk-muvfza3b4dps", "itemIds": ["bk-muv90q61qz72", "bk-muvfza3b4dps", "bk-muvb088rb130", "bk-muva7b8w94jz"], "names": ["와인색 디올 니트", "고고싱 면바지", "막마 테디 코트", "페레가모 아이보리 만두"], "kind": "hot", "reason": "", "weather": "과천 8~22℃ 맑음", "at": "2026-10-08"},
+  {"id": "dl-muysgs83", "signature": "bk-muv8yo3rzues|bk-muv9b3miwd89|bk-muva7b8w94jz|bk-muvb1axiqjhw", "itemIds": ["bk-muv8yo3rzues", "bk-muv9b3miwd89", "bk-muvb1axiqjhw", "bk-muva7b8w94jz"], "names": ["폴로 자주색 니트", "리얼코코 브라운 바지", "막마 아이보리 코트", "페레가모 아이보리 만두"], "kind": "hot", "reason": "", "weather": "과천 8~22℃ 맑음", "at": "2026-10-08"},
+  {"id": "dl-muysgm53", "signature": "bk-muv8yo3rzues|bk-muv9uqcyyaig|bk-muvalraodhb1|bk-muvb088rb130", "itemIds": ["bk-muv8yo3rzues", "bk-muv9uqcyyaig", "bk-muvb088rb130", "bk-muvalraodhb1"], "names": ["폴로 자주색 니트", "리얼코코 연청 바지 여름용", "막마 테디 코트", "셀린느"], "kind": "hot", "reason": "", "weather": "과천 8~22℃ 맑음", "at": "2026-10-08"},
+  {"id": "dl-muvwu4r8", "signature": "bk-muv9xai83odc|bk-muvaemrlyusb|bk-muvee6isykn5|bk-muveo3wymhu5", "itemIds": ["bk-muveo3wymhu5", "bk-muv9xai83odc", "bk-muvee6isykn5", "bk-muvaemrlyusb"], "names": ["맨투맨 기모", "리얼코코 진청바지(기모)", "트위드 콩자켓", "버니카골"], "kind": "hot", "reason": "", "weather": "과천 10~19℃ 맑음", "at": "2026-10-05"},
+  {"id": "dl-muvvurmb", "signature": "bk-muv9xai83odc|bk-muva7b8w94jz|bk-muvee6isykn5|bk-muvesgs5jvkn", "itemIds": ["bk-muvesgs5jvkn", "bk-muv9xai83odc", "bk-muvee6isykn5", "bk-muva7b8w94jz"], "names": ["몽돌 니트", "리얼코코 진청바지(기모)", "트위드 콩자켓", "페레가모 아이보리 만두"], "kind": "hot", "reason": "", "weather": "과천 10~19℃ 맑음", "at": "2026-10-05"},
+  {"id": "dl-muvfb0v9", "signature": "bk-muv9djxcn02w|bk-muvb5w1pmvaj|bk-muvea8tn325c|bk-muvetisqtelu", "itemIds": ["bk-muv9djxcn02w", "bk-muvetisqtelu", "bk-muvea8tn325c", "bk-muvb5w1pmvaj"], "names": ["비비안 빨강 니트", "코듀로이 캉캉스커트", "스웨이드 하프 코트", "루이비통 도핀"], "kind": "combo", "reason": "", "weather": "과천 10~20℃ 대체로 맑음", "at": "2026-10-05"},
+  {"id": "dl-muveq4s1", "signature": "bk-muv8zho02hms|bk-muva7b8w94jz|bk-muvee6isykn5|bk-muvepu2444c4", "itemIds": ["bk-muv8zho02hms", "bk-muvepu2444c4", "bk-muvee6isykn5", "bk-muva7b8w94jz"], "names": ["캐시미어 자주색 니트", "코듀로이바지", "트위드 콩자켓", "페레가모 아이보리 만두"], "kind": "hot", "reason": "", "weather": "과천 10~20℃ 대체로 맑음", "at": "2026-10-05"},
+  {"id": "dl-muva9fr4", "signature": "bk-muv9djxcn02w|bk-muv9uqcyyaig|bk-muva7b8w94jz", "itemIds": ["bk-muv9djxcn02w", "bk-muv9uqcyyaig", "bk-muva7b8w94jz"], "names": ["비비안 빨강 니트", "리얼코코 연청 바지 여름용", "페레가모 아이보리 만두"], "kind": "cold", "reason": "바지 너무 얇아요", "weather": "과천 11℃ 맑음", "at": "2026-10-05"}
+];
+/* BACKUP_DATA_END */
+
 /* 상품명 앞의 마케팅 태그([단독], [MADE], [캡소매/…])를 떼어 읽기 좋게 */
 function cleanProductName(raw){
   return String(raw || '')
@@ -1260,6 +1373,48 @@ function buildWardrobe(){
   });
 }
 
+/* 백업 옷장 68벌 → 앱 아이템
+   백업에 카테고리·소재·색·두께·기장·핏·무드가 모두 적혀 있어 바로 추천에 쓸 수 있다(검수 완료). */
+function buildBackupWardrobe(){
+  if (typeof BACKUP_WARDROBE === 'undefined' || !BACKUP_WARDROBE.items) return [];
+  return BACKUP_WARDROBE.items.map(function(raw){
+    var item = normalizeItem({
+      id: 'w_' + raw.id,
+      name: raw.name,
+      brand: '',
+      category: raw.category,
+      colorName: raw.colorName,
+      materialKey: raw.materialKey,
+      materialRaw: raw.materialRaw,
+      seasons: (raw.seasons || []).slice(),
+      tempMin: raw.tempMin,
+      tempMax: raw.tempMax,
+      tempSource: 'manual',            /* 백업에 적힌 두께·기장으로 정한 값(표 추정 아님) */
+      formality: raw.formality,
+      moods: raw.moods || {},
+      source: 'backup',
+      sourceLabel: '백업 옷장',
+      photoId: raw.id,
+      option: '',
+      link: '',
+      note: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    item.tempBasis = 'backup';
+    item.backupAttrs = { thick: raw.thick, style: raw.style, fit: raw.fit, look: raw.look, otype: raw.otype };
+    item.verify = { category: false, material: false, season: false, temp: false };
+    item.needsReview = false;
+    return item;
+  });
+}
+
+/* 백업에서 넘어온 '싫어하는 코디' 8건 (사본으로 넣는다) */
+function backupDislikes(){
+  if (typeof BACKUP_DISLIKES === 'undefined' || !BACKUP_DISLIKES.length) return [];
+  return BACKUP_DISLIKES.map(function(d){ return JSON.parse(JSON.stringify(d)); });
+}
+
 /* 검수 필요 여부(저장된 아이템에도 적용) */
 function needsReview(item){
   if (!item) return false;
@@ -1327,8 +1482,8 @@ function migrate(data){
   if (!data || !data.schemaVersion || data.schemaVersion < 2) {
     return {
       schemaVersion: SCHEMA_VERSION,
-      items: buildWardrobe(),
-      dislikes: [],
+      items: buildWardrobe().concat(buildBackupWardrobe()),
+      dislikes: backupDislikes(),
       settings: (data && data.settings) || {}
     };
   }
@@ -1340,30 +1495,42 @@ function migrate(data){
     });
     data.schemaVersion = 3;
   }
+  /* v3 → v4: 백업 옷장 68벌 + 백업에서 보정한 코디 8건 병합 (이미 있는 건 건드리지 않음) */
+  if (data.schemaVersion < 4) {
+    data.items = Array.isArray(data.items) ? data.items : [];
+    var haveItem = {};
+    data.items.forEach(function(it){ haveItem[it.id] = 1; });
+    buildBackupWardrobe().forEach(function(it){ if (!haveItem[it.id]) data.items.push(it); });
+    data.dislikes = Array.isArray(data.dislikes) ? data.dislikes : [];
+    var haveSig = {};
+    data.dislikes.forEach(function(d){ haveSig[d.signature] = 1; });
+    backupDislikes().forEach(function(d){ if (!haveSig[d.signature]) data.dislikes.push(d); });
+    data.schemaVersion = 4;
+  }
   return data;
 }
 
 function loadState(){
   var raw = Storage.get(STORAGE_KEY);
   if (!raw) {
-    state.items = buildWardrobe();
+    state.items = buildWardrobe().concat(buildBackupWardrobe());
     state.settings = Object.assign({}, DEFAULT_SETTINGS);
-    state.dislikes = [];
+    state.dislikes = backupDislikes();
     persist();
     return;
   }
   try {
     var data = migrate(JSON.parse(raw));
-    state.items = Array.isArray(data.items) ? data.items.map(normalizeItem) : buildWardrobe();
-    state.dislikes = Array.isArray(data.dislikes) ? data.dislikes : [];
+    state.items = Array.isArray(data.items) ? data.items.map(normalizeItem) : buildWardrobe().concat(buildBackupWardrobe());
+    state.dislikes = Array.isArray(data.dislikes) ? data.dislikes : backupDislikes();
     state.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings || {});
     state.settings.baseTemp = clamp(Number(state.settings.baseTemp) || DEFAULT_FALLBACK_TEMP, -15, 35);
     state.settings.sensitivity = clamp(Number(state.settings.sensitivity) || 0, -3, 3);
     state.settings.region = normalizeRegion(state.settings.region);
   } catch (e) {
-    state.items = buildWardrobe();
+    state.items = buildWardrobe().concat(buildBackupWardrobe());
     state.settings = Object.assign({}, DEFAULT_SETTINGS);
-    state.dislikes = [];
+    state.dislikes = backupDislikes();
     persist();
   }
 }
@@ -1624,6 +1791,19 @@ function isDisliked(sig){
   return state.dislikes.some(function(d){ return d.signature === sig; });
 }
 
+/* 제외 기록은 '그 조합의 옷이 모두 들어간 코디'를 막는다.
+   백업에서 온 기록은 가방·소품 없이 기록된 3~4벌 조합이라 부분집합으로도 걸러야 한다. */
+function isDislikedItems(items){
+  if (!items || !items.length) return false;
+  return state.dislikes.some(function(d){
+    var ids = d.itemIds || [];
+    if (!ids.length) return false;
+    var has = {};
+    items.forEach(function(i){ has[i.id] = 1; });
+    return ids.every(function(id){ return !!has[id]; });
+  });
+}
+
 /* 무드를 만드는 핵심 아이템 — 코디에 최소 1개는 들어가야 무드가 산다 */
 function isMoodKeyPiece(item, moodKey){
   switch (moodKey) {
@@ -1693,7 +1873,7 @@ function buildCandidates(mood, T){
           var ev = evaluateLook(items, mood, T);
           if (!ev) return;
           var sig = signatureOf(items);
-          if (excluded[sig] || seen[sig]) return;
+          if (excluded[sig] || seen[sig] || isDislikedItems(items)) return;
           seen[sig] = 1;
           out.push({ signature:sig, items:items, score:ev.score });
         });
@@ -3016,10 +3196,11 @@ function renderSettings(){
 
   var zig = state.items.filter(function(i){ return i.source === 'zigzag'; }).length;
   var mus = state.items.filter(function(i){ return i.source === 'musinsa'; }).length;
+  var bk = state.items.filter(function(i){ return i.source === 'backup'; }).length;
   var srcEl = $('#wardrobeSource');
   if (srcEl) {
-    srcEl.innerHTML = '옷장 출처: 지그재그 <b>' + zig + '</b>벌 · 무신사 <b>' + mus + '</b>벌' +
-      '<br>지그재그·무신사 주문내역에서 구매확정만 모은 목록이에요(취소·반품 제외).';
+    srcEl.innerHTML = '옷장 출처: 지그재그 <b>' + zig + '</b>벌 · 무신사 <b>' + mus + '</b>벌 · 백업 <b>' + bk + '</b>벌' +
+      '<br>지그재그·무신사 주문내역은 구매확정만(취소·반품 제외), 백업은 2026-11-20 옮긴 옷장 파일 68벌이에요.';
   }
 }
 
@@ -3572,18 +3753,18 @@ function renderVerifyNotice(){
 }
 
 function resetWardrobe(){
-  if (!window.confirm('구매 목록 35벌로 되돌릴까요? 검수·수정한 내용과 삭제 기록이 사라져요.')) return;
-  state.items = buildWardrobe();
+  if (!window.confirm('기본 옷장 103벌(구매 35 + 백업 68)로 되돌릴까요? 검수·수정한 내용과 제외 기록이 사라져요.')) return;
+  state.items = buildWardrobe().concat(buildBackupWardrobe());
   state.closetFilter = 'all';
   persist();
   recomputeLooks();
   renderAll();
-  toast('구매 목록 35벌을 다시 불러왔어요');
+  toast('기본 옷장 103벌을 다시 불러왔어요');
 }
 
 function resetAll(){
   if (!window.confirm('옷장·제외 코디·체감 설정을 모두 처음 상태로 되돌릴까요?')) return;
-  state.items = buildWardrobe();
+  state.items = buildWardrobe().concat(buildBackupWardrobe());
   state.dislikes = [];
   state.settings = Object.assign({}, DEFAULT_SETTINGS);
   state.settings.region = normalizeRegion(null);
