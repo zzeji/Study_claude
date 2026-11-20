@@ -659,6 +659,7 @@ var STORAGE_KEY = 'wardrobeApp.v1';
 /* 누끼(배경 제거) 이미지 위치 — GitHub(zzeji/Study_claude)에 올린 cutouts/*.png 를 그대로 참조 */
 var CUTOUT_BASE = 'https://raw.githubusercontent.com/zzeji/Study_claude/main/cutouts/';
 var CUTOUT_LOCAL = 'cutouts/';
+var CUTOUT_VER = '?v=2';  /* 배포 갱신 시 올린다 — 브라우저·CDN 캐시 회피 */
 
 /* 누끼를 만들어 둔 전체 상품 id (구매 목록 35벌) */
 var CUTOUT_IDS = (
@@ -1273,7 +1274,7 @@ function cutoutIdOf(item){
 function imageSrcOf(item){
   if (item && item.photoUrl) return { src:item.photoUrl, fallback:'' };
   var pid = cutoutIdOf(item);
-  if (pid) return { src: CUTOUT_BASE + pid + '.png', fallback: CUTOUT_LOCAL + pid + '.png' };
+  if (pid) return { src: CUTOUT_BASE + pid + '.png' + CUTOUT_VER, fallback: CUTOUT_LOCAL + pid + '.png' };
   return { src:'', fallback:'' };
 }
 
