@@ -489,6 +489,53 @@
   .clean-row .secondary-btn{ padding:8px 11px; font-size:12px; }
 
   .bag-empty-note{ font-size:11px; color:#8a6a3a; background:var(--warn-soft); border:1px solid #f2e2c6; border-radius:12px; padding:8px 10px; margin-top:10px; letter-spacing:-.2px; line-height:1.5; }
+
+  /* ── 지역 날씨 (지역 검색 + 실시간) ── */
+  .weather-row{ display:flex; align-items:center; gap:7px; margin-bottom:9px; flex-wrap:wrap; }
+  .region-btn{
+    display:inline-flex; align-items:center; gap:5px; padding:6px 10px 6px 9px; border-radius:99px;
+    background:var(--accent-soft); color:var(--accent-ink); border:1px solid #e8d9c7;
+    font-size:13px; font-weight:800; letter-spacing:-.3px; white-space:nowrap;
+  }
+  .region-btn:active{ background:#e9dccd; }
+  .region-btn .pin{ font-size:11.5px; }
+  .region-btn .caret{ font-size:9px; color:#a58d76; margin-left:1px; }
+  .weather-cond{ display:inline-flex; align-items:center; gap:5px; min-width:0; font-size:12px; font-weight:700; color:var(--sub); letter-spacing:-.2px; }
+  .weather-cond .ico{ font-size:14px; line-height:1; }
+  .weather-cond .range{ font-weight:600; color:#928a7e; white-space:nowrap; }
+  .weather-retry{ margin-left:auto; width:26px; height:26px; border-radius:50%; display:grid; place-items:center;
+    background:#f6f1ea; border:1px solid var(--line); font-size:12px; color:var(--sub); flex:none; }
+  .weather-retry.busy{ animation:spin 1s linear infinite; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  .weather-upd{ width:100%; font-size:10.5px; color:#a79d90; letter-spacing:-.1px; margin-top:-3px; }
+  .weather-upd.err{ color:var(--danger); }
+  .weather-search{ margin:0 0 12px; padding:10px; border-radius:14px; background:#f7f2ea; border:1px solid var(--line); }
+  .weather-search .row{ display:flex; gap:6px; }
+  .weather-search input{
+    flex:1; min-width:0; padding:9px 11px; border-radius:11px; border:1px solid var(--line-strong);
+    background:#fff; font-size:14px; letter-spacing:-.2px; -webkit-appearance:none; appearance:none;
+  }
+  .weather-search input::placeholder{ color:#b6ac9e; }
+  .weather-search .go{
+    flex:none; padding:0 14px; border-radius:11px; background:var(--accent); color:#fff;
+    font-size:13px; font-weight:800; letter-spacing:-.2px;
+  }
+  .weather-search .go:active{ background:#6a4d3a; }
+  .region-suggest{ display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+  .region-chip{
+    display:inline-flex; align-items:baseline; gap:4px; padding:6px 10px; border-radius:99px;
+    background:#fff; border:1px solid var(--line); font-size:12.5px; font-weight:700;
+    color:var(--accent-ink); letter-spacing:-.2px;
+  }
+  .region-chip:active{ background:#f1e7dc; }
+  .region-chip .rg-admin{ font-size:10px; font-weight:600; color:#a29484; }
+  .weather-msg{ font-size:11px; color:var(--sub); margin-top:8px; letter-spacing:-.1px; line-height:1.5; }
+  .weather-msg.err{ color:var(--danger); }
+  .live-tag{
+    display:inline-block; margin-left:5px; padding:1px 6px; border-radius:99px; vertical-align:1px;
+    background:var(--ok-soft); color:var(--ok); font-size:9.5px; font-weight:800; letter-spacing:-.1px;
+  }
+  .live-tag.manual{ background:#f4efe8; color:#8f8578; }
 </style>
 </head>
 <body>
@@ -510,9 +557,29 @@
     <!-- ═══ 추천 ═══ -->
     <section class="view" id="view-recommend">
       <div class="card temp-card">
+        <div class="weather-row">
+          <button class="region-btn" data-action="region-open" aria-label="지역 변경" aria-expanded="false">
+            <span class="pin">📍</span><span id="regionLabel">과천</span><span class="caret">▼</span>
+          </button>
+          <span class="weather-cond">
+            <span class="ico" id="weatherCondIco">🌡️</span>
+            <span id="weatherCondText">날씨 불러오는 중</span>
+            <span class="range" id="weatherRange"></span>
+          </span>
+          <button class="weather-retry" id="weatherRetry" data-action="weather-retry" aria-label="날씨 새로고침">↻</button>
+        </div>
+        <div class="weather-search hidden" id="weatherSearch">
+          <div class="row">
+            <input id="regionInput" type="search" placeholder="지역 검색 (예: 부산, 성수, 판교)" autocomplete="off" enterkeyhint="search" aria-label="지역 검색">
+            <button class="go" id="regionGoBtn">검색</button>
+          </div>
+          <div class="region-suggest" id="regionSuggest"></div>
+          <p class="weather-msg" id="weatherMsg">동·구·시 이름으로 찾아요. 결과를 누르면 그 지역 날씨로 코디를 다시 추천해요.</p>
+        </div>
+        <p class="weather-upd" id="weatherUpd"></p>
         <div class="temp-head">
           <div>
-            <p class="label">지금 기온</p>
+            <p class="label">지금 기온<span class="live-tag" id="tempSourceTag">기본값</span></p>
             <div class="temp-value"><span id="baseTempLabel">2</span><span class="unit">°C</span></div>
           </div>
           <div class="temp-side">
@@ -520,8 +587,9 @@
             <div><strong id="effectiveTempLabel">2</strong><span class="sub">°C</span></div>
           </div>
         </div>
-        <input type="range" id="tempSlider" min="-15" max="35" step="1" value="2" aria-label="현재 기온">
+        <input type="range" id="tempSlider" min="-15" max="35" step="1" value="2" aria-label="기온 직접 조정">
         <div class="chip-row" id="tempQuickRow"></div>
+        <p class="hint" id="tempSourceHint"></p>
         <div class="divider"></div>
         <p class="label" style="margin-bottom:7px">내 체감 민감도</p>
         <div class="segmented" id="sensitivityRow"></div>
@@ -652,7 +720,7 @@
 /* ══════════════════════════════════════════════════════════════
    0. 상수 · 스키마
    ══════════════════════════════════════════════════════════════ */
-var APP_VERSION = '1.2.0';
+var APP_VERSION = '1.3.0';
 var SCHEMA_VERSION = 3;
 var STORAGE_KEY = 'wardrobeApp.v1';
 
@@ -685,6 +753,112 @@ var CATEGORIES = [
 ];
 var CATEGORY_KEYS = CATEGORIES.map(function(c){ return c.key; });
 var SEASONS = ['봄','여름','가을','겨울','사계절'];
+
+/* ── 지역 날씨: 기본 지역은 과천, 나머지는 검색으로 바꾼다 ── */
+var DEFAULT_REGION = { name:'과천', admin:'경기', lat:37.4292, lon:126.9877 };
+var DEFAULT_FALLBACK_TEMP = 2;  /* 날씨를 못 불러올 때 쓰는 기본 기온 */
+
+/* 한국 주요 시·구·동 좌표표 — Open-Meteo 지오코딩보다 한국어 이름에 정확하다 */
+var REGIONS = [
+  { name:'과천',   admin:'경기',      lat:37.4292, lon:126.9877, aliases:['과천시'] },
+  { name:'서울',   admin:'서울',      lat:37.5665, lon:126.9780, aliases:['서울시','서울특별시'] },
+  { name:'강남',   admin:'서울',      lat:37.4979, lon:127.0276, aliases:['강남구','강남역'] },
+  { name:'서초',   admin:'서울',      lat:37.4837, lon:127.0324, aliases:['서초구'] },
+  { name:'송파',   admin:'서울',      lat:37.5145, lon:127.1059, aliases:['송파구'] },
+  { name:'잠실',   admin:'서울 송파', lat:37.5133, lon:127.1001, aliases:['잠실동','잠실역','롯데월드몰'] },
+  { name:'성수',   admin:'서울 성동', lat:37.5446, lon:127.0557, aliases:['성수동','성수역'] },
+  { name:'홍대',   admin:'서울 마포', lat:37.5563, lon:126.9236, aliases:['홍대입구','홍대입구역'] },
+  { name:'마포',   admin:'서울',      lat:37.5663, lon:126.9019, aliases:['마포구','합정','상수'] },
+  { name:'종로',   admin:'서울',      lat:37.5730, lon:126.9794, aliases:['종로구','광화문'] },
+  { name:'용산',   admin:'서울',      lat:37.5384, lon:126.9654, aliases:['용산구','이태원'] },
+  { name:'영등포', admin:'서울',      lat:37.5264, lon:126.8963, aliases:['영등포구','여의도'] },
+  { name:'신촌',   admin:'서울 서대문', lat:37.5551, lon:126.9368, aliases:['신촌역','서대문'] },
+  { name:'건대',   admin:'서울 광진', lat:37.5403, lon:127.0695, aliases:['건대입구','광진','광진구'] },
+  { name:'왕십리', admin:'서울 성동', lat:37.5613, lon:127.0371, aliases:['왕십리역'] },
+  { name:'노원',   admin:'서울',      lat:37.6542, lon:127.0568, aliases:['노원구'] },
+  { name:'은평',   admin:'서울',      lat:37.6027, lon:126.9291, aliases:['은평구','불광'] },
+  { name:'강서',   admin:'서울',      lat:37.5509, lon:126.8495, aliases:['강서구','김포공항'] },
+  { name:'관악',   admin:'서울',      lat:37.4784, lon:126.9516, aliases:['관악구','신림'] },
+  { name:'동작',   admin:'서울',      lat:37.5124, lon:126.9393, aliases:['동작구','사당'] },
+  { name:'성북',   admin:'서울',      lat:37.5894, lon:127.0167, aliases:['성북구'] },
+  { name:'중랑',   admin:'서울',      lat:37.6063, lon:127.0925, aliases:['중랑구'] },
+  { name:'도봉',   admin:'서울',      lat:37.6688, lon:127.0471, aliases:['도봉구','창동'] },
+  { name:'강동',   admin:'서울',      lat:37.5301, lon:127.1238, aliases:['강동구','천호'] },
+  { name:'금천',   admin:'서울',      lat:37.4569, lon:126.8956, aliases:['금천구','가산디지털'] },
+  { name:'구로',   admin:'서울',      lat:37.4954, lon:126.8874, aliases:['구로구'] },
+  { name:'판교',   admin:'경기 성남', lat:37.3948, lon:127.1112, aliases:['판교역','판교테크노밸리'] },
+  { name:'성남',   admin:'경기',      lat:37.4200, lon:127.1265, aliases:['성남시'] },
+  { name:'분당',   admin:'경기 성남', lat:37.3595, lon:127.1052, aliases:['분당구','정자','서현'] },
+  { name:'수원',   admin:'경기',      lat:37.2636, lon:127.0286, aliases:['수원시'] },
+  { name:'안양',   admin:'경기',      lat:37.3943, lon:126.9568, aliases:['안양시','범계'] },
+  { name:'군포',   admin:'경기',      lat:37.3616, lon:126.9352, aliases:['군포시','산본'] },
+  { name:'의왕',   admin:'경기',      lat:37.3449, lon:126.9686, aliases:['의왕시'] },
+  { name:'광명',   admin:'경기',      lat:37.4786, lon:126.8644, aliases:['광명시','광명역'] },
+  { name:'부천',   admin:'경기',      lat:37.5035, lon:126.7660, aliases:['부천시'] },
+  { name:'시흥',   admin:'경기',      lat:37.3800, lon:126.8029, aliases:['시흥시','배곧'] },
+  { name:'안산',   admin:'경기',      lat:37.3219, lon:126.8309, aliases:['안산시','상록수'] },
+  { name:'용인',   admin:'경기',      lat:37.2411, lon:127.1776, aliases:['용인시','수지','기흥'] },
+  { name:'화성',   admin:'경기',      lat:37.1995, lon:126.8312, aliases:['화성시'] },
+  { name:'동탄',   admin:'경기 화성', lat:37.2005, lon:127.0955, aliases:['동탄역'] },
+  { name:'오산',   admin:'경기',      lat:37.1499, lon:127.0696, aliases:['오산시'] },
+  { name:'평택',   admin:'경기',      lat:36.9921, lon:127.1129, aliases:['평택시'] },
+  { name:'이천',   admin:'경기',      lat:37.2721, lon:127.4350, aliases:['이천시'] },
+  { name:'하남',   admin:'경기',      lat:37.5393, lon:127.2148, aliases:['하남시','미사'] },
+  { name:'구리',   admin:'경기',      lat:37.5943, lon:127.1296, aliases:['구리시'] },
+  { name:'남양주', admin:'경기',      lat:37.6360, lon:127.2165, aliases:['남양주시','다산'] },
+  { name:'고양',   admin:'경기',      lat:37.6584, lon:126.8320, aliases:['고양시','일산'] },
+  { name:'파주',   admin:'경기',      lat:37.7599, lon:126.7800, aliases:['파주시','운정'] },
+  { name:'김포',   admin:'경기',      lat:37.6153, lon:126.7156, aliases:['김포시'] },
+  { name:'의정부', admin:'경기',      lat:37.7381, lon:127.0337, aliases:['의정부시'] },
+  { name:'인천',   admin:'인천',      lat:37.4563, lon:126.7052, aliases:['인천시','인천광역시'] },
+  { name:'송도',   admin:'인천 연수', lat:37.3860, lon:126.6560, aliases:['송도동','송도국제도시'] },
+  { name:'부평',   admin:'인천',      lat:37.5070, lon:126.7216, aliases:['부평구'] },
+  { name:'부산',   admin:'부산',      lat:35.1796, lon:129.0756, aliases:['부산시','부산광역시'] },
+  { name:'해운대', admin:'부산',      lat:35.1631, lon:129.1636, aliases:['해운대구','해운대해수욕장'] },
+  { name:'광안리', admin:'부산 수영', lat:35.1532, lon:129.1186, aliases:['광안','수영구'] },
+  { name:'서면',   admin:'부산',      lat:35.1579, lon:129.0594, aliases:['부산진구'] },
+  { name:'대구',   admin:'대구',      lat:35.8714, lon:128.6014, aliases:['대구시','대구광역시','동성로'] },
+  { name:'대전',   admin:'대전',      lat:36.3504, lon:127.3845, aliases:['대전시','대전광역시','둔산'] },
+  { name:'광주',   admin:'광주',      lat:35.1595, lon:126.8526, aliases:['광주시','광주광역시','충장로'] },
+  { name:'울산',   admin:'울산',      lat:35.5384, lon:129.3114, aliases:['울산시','울산광역시'] },
+  { name:'세종',   admin:'세종',      lat:36.4800, lon:127.2890, aliases:['세종시','세종특별자치시'] },
+  { name:'제주',   admin:'제주',      lat:33.4996, lon:126.5312, aliases:['제주시','제주도','제주특별자치도','제주공항'] },
+  { name:'서귀포', admin:'제주',      lat:33.2541, lon:126.5600, aliases:['서귀포시'] },
+  { name:'중문',   admin:'제주 서귀포', lat:33.2497, lon:126.4127, aliases:['중문관광단지'] },
+  { name:'애월',   admin:'제주',      lat:33.4634, lon:126.3300, aliases:['애월읍'] },
+  { name:'강릉',   admin:'강원',      lat:37.7519, lon:128.8761, aliases:['강릉시','경포'] },
+  { name:'속초',   admin:'강원',      lat:38.2070, lon:128.5918, aliases:['속초시'] },
+  { name:'춘천',   admin:'강원',      lat:37.8813, lon:127.7300, aliases:['춘천시'] },
+  { name:'원주',   admin:'강원',      lat:37.3422, lon:127.9202, aliases:['원주시'] },
+  { name:'양양',   admin:'강원',      lat:38.0754, lon:128.6190, aliases:['양양군','양양공항'] },
+  { name:'청주',   admin:'충북',      lat:36.6424, lon:127.4890, aliases:['청주시'] },
+  { name:'천안',   admin:'충남',      lat:36.8151, lon:127.1139, aliases:['천안시'] },
+  { name:'아산',   admin:'충남',      lat:36.7898, lon:127.0019, aliases:['아산시'] },
+  { name:'전주',   admin:'전북',      lat:35.8242, lon:127.1480, aliases:['전주시','한옥마을'] },
+  { name:'목포',   admin:'전남',      lat:34.8118, lon:126.3922, aliases:['목포시'] },
+  { name:'여수',   admin:'전남',      lat:34.7604, lon:127.6622, aliases:['여수시'] },
+  { name:'순천',   admin:'전남',      lat:34.9506, lon:127.4872, aliases:['순천시'] },
+  { name:'포항',   admin:'경북',      lat:36.0190, lon:129.3435, aliases:['포항시'] },
+  { name:'창원',   admin:'경남',      lat:35.2281, lon:128.6811, aliases:['창원시','마산'] },
+  { name:'김해',   admin:'경남',      lat:35.2342, lon:128.8892, aliases:['김해시'] },
+  { name:'진주',   admin:'경남',      lat:35.1800, lon:128.1076, aliases:['진주시'] }
+];
+
+/* 한국어 검색이 비었을 때 지오코딩에 넘길 영문 이름 (폴백) */
+var REGION_EN = {
+  '과천':'Gwacheon', '서울':'Seoul', '강남':'Gangnam', '서초':'Seocho', '송파':'Songpa',
+  '잠실':'Jamsil', '성수':'Seongsu', '홍대':'Hongdae', '마포':'Mapo', '판교':'Pangyo',
+  '성남':'Seongnam', '분당':'Bundang', '수원':'Suwon', '인천':'Incheon', '부산':'Busan',
+  '대구':'Daegu', '대전':'Daejeon', '광주':'Gwangju', '울산':'Ulsan', '세종':'Sejong',
+  '제주':'Jeju', '서귀포':'Seogwipo', '춘천':'Chuncheon', '원주':'Wonju', '강릉':'Gangneung',
+  '속초':'Sokcho', '청주':'Cheongju', '천안':'Cheonan', '전주':'Jeonju', '포항':'Pohang',
+  '창원':'Changwon', '김해':'Gimhae', '안양':'Anyang', '부천':'Bucheon', '고양':'Goyang',
+  '용인':'Yongin', '안산':'Ansan', '하남':'Hanam', '남양주':'Namyangju', '파주':'Paju',
+  '김포':'Gimpo', '의정부':'Uijeongbu', '광명':'Gwangmyeong', '시흥':'Siheung', '군포':'Gunpo',
+  '오산':'Osan', '평택':'Pyeongtaek', '화성':'Hwaseong', '이천':'Icheon', '해운대':'Haeundae',
+  '여수':'Yeosu', '목포':'Mokpo', '순천':'Suncheon', '진주':'Jinju', '동탄':'Dongtan'
+};
+var REGION_SUGGEST_DEFAULT = ['과천','서울','강남','잠실','성수','홍대','판교','분당','수원','인천','부산','제주'];
 
 var MATERIALS = [
   { key:'down',       label:'구스다운',   warmth:1.00 },
@@ -1092,12 +1266,18 @@ function needsReview(item){
 /* ══════════════════════════════════════════════════════════════
    4. 상태
    ══════════════════════════════════════════════════════════════ */
-var DEFAULT_SETTINGS = { baseTemp: 2, sensitivity: 0 };
+var DEFAULT_SETTINGS = {
+  baseTemp: DEFAULT_FALLBACK_TEMP,
+  sensitivity: 0,
+  region: { name: DEFAULT_REGION.name, admin: DEFAULT_REGION.admin, lat: DEFAULT_REGION.lat, lon: DEFAULT_REGION.lon }
+};
 
 var state = {
   items: [],
   dislikes: [],
   settings: Object.assign({}, DEFAULT_SETTINGS),
+  weather: null,
+  weatherError: '',
   looks: [],
   lookPool: {},
   draft: null,
@@ -1174,8 +1354,9 @@ function loadState(){
     state.items = Array.isArray(data.items) ? data.items.map(normalizeItem) : buildWardrobe();
     state.dislikes = Array.isArray(data.dislikes) ? data.dislikes : [];
     state.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings || {});
-    state.settings.baseTemp = clamp(Number(state.settings.baseTemp) || 2, -15, 35);
+    state.settings.baseTemp = clamp(Number(state.settings.baseTemp) || DEFAULT_FALLBACK_TEMP, -15, 35);
     state.settings.sensitivity = clamp(Number(state.settings.sensitivity) || 0, -3, 3);
+    state.settings.region = normalizeRegion(state.settings.region);
   } catch (e) {
     state.items = buildWardrobe();
     state.settings = Object.assign({}, DEFAULT_SETTINGS);
@@ -2162,7 +2343,393 @@ function toast(message, actionLabel, actionFn){
 function renderToday(){
   var d = new Date();
   var days = ['일','월','화','수','목','금','토'];
-  $('#todayLabel').textContent = (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + days[d.getDay()] + '요일 · 코디 5가지';
+  var w = state.weather;
+  var r = state.settings.region || DEFAULT_REGION;
+  var tail = w
+    ? (w.name + ' ' + (w.icon || '') + ' ' + (w.cond || '')).replace(/\s+/g, ' ')
+    : (r.name + ' · 코디 5가지');
+  $('#todayLabel').textContent = (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + days[d.getDay()] + '요일 · ' + tail;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   4.5 지역 날씨 — Open-Meteo(API 키 없음) + 한국 지역표
+   ══════════════════════════════════════════════════════════════ */
+var WEATHER_API = 'https://api.open-meteo.com/v1/forecast';
+var GEOCODE_API = 'https://geocoding-api.open-meteo.com/v1/search';
+var WEATHER_CACHE_KEY = 'wardrobeApp.weather.v1';
+var WEATHER_TIMEOUT = 8000;
+var REGION_HELP = '동·구·시 이름으로 찾아요 (예: 부산, 성수, 판교). 결과를 누르면 그 지역 날씨로 코디를 다시 추천해요.';
+var tempTouched = false;   /* 슬라이더로 직접 보정했는지 — 날씨가 기온을 덮어쓰지 않게 */
+var weatherBusy = false;
+var weatherSeq = 0;
+
+function regionNorm(q){
+  return String(q == null ? '' : q).toLowerCase()
+    .replace(/[\s\-_.]/g, '')
+    .replace(/(특별자치시|특별자치도|특별시|광역시|시|군|구|동|읍|면|역)$/g, '');
+}
+
+function normalizeRegion(raw){
+  var r = raw;
+  if (typeof r === 'string') r = findLocalRegion(r);
+  if (r && r.lat != null && r.lon != null && isFinite(Number(r.lat)) && isFinite(Number(r.lon))) {
+    return { name: String(r.name || DEFAULT_REGION.name), admin: String(r.admin || ''), lat: Number(r.lat), lon: Number(r.lon) };
+  }
+  return { name: DEFAULT_REGION.name, admin: DEFAULT_REGION.admin, lat: DEFAULT_REGION.lat, lon: DEFAULT_REGION.lon };
+}
+
+function regionMatches(region, q){
+  var n = regionNorm(q);
+  if (!n || !region) return 0;
+  var names = [region.name].concat(region.aliases || []);
+  var best = 0;
+  for (var i = 0; i < names.length; i++) {
+    var t = regionNorm(names[i]);
+    if (!t) continue;
+    if (t === n) best = Math.max(best, 4);
+    else if (t.indexOf(n) === 0) best = Math.max(best, 3);
+    else if (n.indexOf(t) === 0) best = Math.max(best, 2);
+    else if (t.indexOf(n) >= 0) best = Math.max(best, 1);
+  }
+  return best;
+}
+
+function searchLocalRegions(q){
+  var hits = [];
+  REGIONS.forEach(function(r){
+    var s = regionMatches(r, q);
+    if (s) hits.push({ r: r, s: s });
+  });
+  hits.sort(function(a, b){
+    if (b.s !== a.s) return b.s - a.s;
+    return a.r.name.length - b.r.name.length;
+  });
+  return hits.map(function(h){ return h.r; });
+}
+
+function findLocalRegion(name){
+  var n = regionNorm(name);
+  if (!n) return null;
+  for (var i = 0; i < REGIONS.length; i++) {
+    if (regionNorm(REGIONS[i].name) === n) return REGIONS[i];
+  }
+  return null;
+}
+
+/* 브라우저 fetch + 시간 제한 (구형 브라우저에서 AbortController 없으면 그냥 fetch) */
+function fetchJSON(url, timeoutMs){
+  return new Promise(function(resolve, reject){
+    if (typeof fetch !== 'function') { reject(new Error('fetch 없음')); return; }
+    var ctl = (typeof AbortController === 'function') ? new AbortController() : null;
+    var settled = false;
+    var timer = setTimeout(function(){
+      if (settled) return;
+      settled = true;
+      if (ctl) { try { ctl.abort(); } catch (e) {} }
+      reject(new Error('시간 초과'));
+    }, timeoutMs || WEATHER_TIMEOUT);
+    fetch(url, ctl ? { signal: ctl.signal } : undefined).then(function(res){
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }).then(function(data){
+      if (settled) return;
+      settled = true; clearTimeout(timer); resolve(data);
+    }).catch(function(err){
+      if (settled) return;
+      settled = true; clearTimeout(timer); reject(err);
+    });
+  });
+}
+
+/* WMO 날씨 코드 → 한국어 상태 + 아이콘 */
+function wmoInfo(code){
+  var c = Number(code);
+  if (!isFinite(c)) return { label: '날씨 정보 없음', icon: '🌡️' };
+  if (c === 0) return { label: '맑음', icon: '☀️' };
+  if (c === 1) return { label: '대체로 맑음', icon: '🌤️' };
+  if (c === 2) return { label: '구름 조금', icon: '⛅' };
+  if (c === 3) return { label: '흐림', icon: '☁️' };
+  if (c === 45 || c === 48) return { label: '안개', icon: '🌫️' };
+  if (c >= 51 && c <= 57) return { label: '이슬비', icon: '🌦️' };
+  if (c >= 61 && c <= 67) return { label: '비', icon: '🌧️' };
+  if (c >= 71 && c <= 77) return { label: '눈', icon: '❄️' };
+  if (c >= 80 && c <= 82) return { label: '소나기', icon: '🌦️' };
+  if (c === 85 || c === 86) return { label: '눈 소나기', icon: '🌨️' };
+  if (c >= 95) return { label: '천둥번개', icon: '⛈️' };
+  return { label: '흐림', icon: '☁️' };
+}
+
+function fetchRegionWeather(region){
+  var url = WEATHER_API +
+    '?latitude=' + encodeURIComponent(region.lat) + '&longitude=' + encodeURIComponent(region.lon) +
+    '&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min' +
+    '&timezone=Asia%2FSeoul&forecast_days=1';
+  return fetchJSON(url).then(function(d){
+    var cur = d && d.current;
+    if (!cur || cur.temperature_2m == null || cur.temperature_2m === '') throw new Error('기온 없음');
+    var daily = (d && d.daily) || {};
+    var info = wmoInfo(cur.weather_code);
+    var tmin = (daily.temperature_2m_min && daily.temperature_2m_min[0] != null) ? Math.round(Number(daily.temperature_2m_min[0])) : null;
+    var tmax = (daily.temperature_2m_max && daily.temperature_2m_max[0] != null) ? Math.round(Number(daily.temperature_2m_max[0])) : null;
+    return {
+      name: region.name,
+      admin: region.admin || '',
+      lat: Number(region.lat),
+      lon: Number(region.lon),
+      temp: Math.round(Number(cur.temperature_2m)),
+      tmin: tmin,
+      tmax: tmax,
+      code: cur.weather_code,
+      cond: info.label,
+      icon: info.icon,
+      observed: cur.time || '',
+      at: new Date().toISOString()
+    };
+  });
+}
+
+function geocodeRegion(q){
+  var url = GEOCODE_API + '?name=' + encodeURIComponent(q) + '&count=6&language=ko&format=json';
+  return fetchJSON(url, 9000).then(function(d){
+    var list = (d && d.results) || [];
+    var out = list.map(function(it){
+      var admins = [it.admin1, it.admin2].filter(Boolean).filter(function(v, i, arr){ return arr.indexOf(v) === i; });
+      return {
+        name: it.name,
+        admin: admins.join(' '),
+        lat: Number(it.latitude),
+        lon: Number(it.longitude),
+        cc: it.country_code || ''
+      };
+    });
+    out.sort(function(a, b){
+      var ak = (a.cc === 'KR') ? 0 : 1, bk = (b.cc === 'KR') ? 0 : 1;
+      return ak - bk;
+    });
+    return out;
+  });
+}
+
+/* 한국어 지오코딩이 비면 영문 이름으로 한 번 더 (language=ko 폴백) */
+function geocodeWithFallback(q){
+  return geocodeRegion(q).then(function(list){
+    if (list.length) return list;
+    var en = REGION_EN[regionNorm(q)];
+    if (!en) return [];
+    return geocodeRegion(en);
+  });
+}
+
+function weatherRangeText(w){
+  if (!w) return '';
+  if (w.tmin != null && w.tmax != null) return w.tmin + '~' + w.tmax + '°C';
+  return (w.temp != null) ? w.temp + '°C' : '';
+}
+
+/* 룩북 카드 하단 캡션: '과천 -5~2°C 맑음' */
+function regionShortName(){
+  return (state.weather && state.weather.name) || (state.settings.region || DEFAULT_REGION).name;
+}
+
+function weatherLine(){
+  var r = state.settings.region || DEFAULT_REGION;
+  var w = state.weather;
+  var name = (w && w.name) || r.name;
+  if (!w) return name + ' ' + state.settings.baseTemp + '°C';
+  return name + ' ' + weatherRangeText(w) + (w.cond ? ' ' + w.cond : '');
+}
+
+function tempSourceHintText(){
+  var w = state.weather;
+  var name = (state.settings.region || DEFAULT_REGION).name;
+  if (!w) return name + ' 날씨를 불러오면 그 지역 실시간 기온으로 코디를 골라요. 지금은 기본 기온 ' + state.settings.baseTemp + '°C 기준이에요.';
+  var body = name + ' ' + (w.cond || '') + ' 현재 ' + w.temp + '°C';
+  if (w.tmin != null && w.tmax != null) body += ' (최저 ' + w.tmin + '°C·최고 ' + w.tmax + '°C)';
+  return body + ' · ' + (tempTouched
+    ? '슬라이더로 직접 맞춘 ' + state.settings.baseTemp + '°C로 코디를 골랐어요.'
+    : '이 기온으로 코디를 골랐어요.');
+}
+
+function renderWeatherTags(){
+  var tag = $('#tempSourceTag');
+  if (tag) {
+    tag.textContent = tempTouched ? '직접 조정' : (state.weather ? '실시간' : '기본값');
+    tag.className = 'live-tag' + (tempTouched || !state.weather ? ' manual' : '');
+  }
+  var hint = $('#tempSourceHint');
+  if (hint) hint.textContent = tempSourceHintText();
+}
+
+function renderWeather(){
+  var r = state.settings.region || DEFAULT_REGION;
+  var w = state.weather;
+  var lbl = $('#regionLabel');
+  if (lbl) lbl.textContent = (w && w.name) || r.name;
+  var ico = $('#weatherCondIco');
+  if (ico) ico.textContent = w ? (w.icon || '🌡️') : (weatherBusy ? '⏳' : '🌡️');
+  var txt = $('#weatherCondText');
+  if (txt) txt.textContent = w ? (w.cond || '') : (weatherBusy ? '불러오는 중' : '날씨 정보 없음');
+  var rng = $('#weatherRange');
+  if (rng) rng.textContent = w ? weatherRangeText(w) : '';
+  var upd = $('#weatherUpd');
+  if (upd) {
+    if (state.weatherError && !weatherBusy) {
+      upd.textContent = w
+        ? '최신 날씨를 못 받았어요 · 마지막으로 받은 기온으로 계산해요'
+        : '날씨 연결 실패 · 기온은 슬라이더로 직접 맞출 수 있어요';
+      upd.className = 'weather-upd err';
+    } else if (w && w.observed) {
+      upd.textContent = String(w.observed).slice(11, 16) + ' 기준 실시간 날씨';
+      upd.className = 'weather-upd';
+    } else {
+      upd.textContent = weatherBusy ? '실시간 날씨를 불러오는 중…' : '';
+      upd.className = 'weather-upd';
+    }
+  }
+  var retry = $('#weatherRetry');
+  if (retry) retry.className = 'weather-retry' + (weatherBusy ? ' busy' : '');
+  renderWeatherTags();
+  renderToday();
+}
+
+function regionChipHtml(r){
+  if (!r) return '';
+  var sub = r.admin ? '<span class="rg-admin">' + esc(r.admin) + '</span>' : '';
+  return '<button class="region-chip" data-action="region-pick" data-name="' + esc(r.name) + '"' +
+    ' data-admin="' + esc(r.admin || '') + '" data-lat="' + esc(r.lat) + '" data-lon="' + esc(r.lon) + '">' +
+    esc(r.name) + sub + '</button>';
+}
+
+function renderRegionSuggest(list){
+  var host = $('#regionSuggest');
+  if (!host) return;
+  var items = (list && list.length) ? list : REGION_SUGGEST_DEFAULT.map(function(n){ return findLocalRegion(n); });
+  host.innerHTML = items.map(regionChipHtml).join('');
+}
+
+function setWeatherMsg(text, isErr){
+  var el = $('#weatherMsg');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'weather-msg' + (isErr ? ' err' : '');
+}
+
+function openRegionSearch(open){
+  var panel = $('#weatherSearch');
+  if (!panel) return;
+  var shouldOpen = (open == null) ? panel.classList.contains('hidden') : !!open;
+  panel.classList.toggle('hidden', !shouldOpen);
+  var btn = $('[data-action="region-open"]');
+  if (btn) btn.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+  if (shouldOpen) {
+    renderRegionSuggest(null);
+    setWeatherMsg(REGION_HELP);
+    var input = $('#regionInput');
+    if (input) { try { input.focus(); } catch (e) {} }
+  }
+}
+
+/* 검색 실행: 지역표 → (없으면) 지오코딩 순서 */
+function runRegionSearch(q){
+  q = String(q == null ? '' : q).trim();
+  if (!q) { setWeatherMsg('지역 이름을 입력해 주세요.', true); return; }
+  var locals = searchLocalRegions(q);
+  var exact = null;
+  for (var i = 0; i < locals.length; i++) {
+    if (regionNorm(locals[i].name) === regionNorm(q)) { exact = locals[i]; break; }
+  }
+  if (exact) { selectRegion(exact); return; }
+  if (locals.length) {
+    renderRegionSuggest(locals.slice(0, 8));
+    setWeatherMsg('‘' + q + '’와 가까운 지역이에요. 누르면 그 지역으로 바뀌어요.');
+    return;
+  }
+  setWeatherMsg('‘' + q + '’ 찾는 중…');
+  geocodeWithFallback(q).then(function(list){
+    if (!list.length) {
+      setWeatherMsg('‘' + q + '’ 지역을 찾지 못했어요. 동·구·시 이름으로 다시 검색해 주세요.', true);
+      return;
+    }
+    renderRegionSuggest(list.slice(0, 6));
+    setWeatherMsg('검색 결과예요. 누르면 그 지역 날씨로 코디를 다시 추천해요.');
+  }).catch(function(){
+    setWeatherMsg('지역 검색이 잠시 안 돼요. 잠시 뒤 다시 시도해 주세요.', true);
+  });
+}
+
+function selectRegion(r){
+  if (!r) return;
+  if (r.lat == null || r.lon == null || r.lat === '' || r.lon === '') {
+    var local = findLocalRegion(r.name);
+    if (!local) { setWeatherMsg('그 지역 좌표를 확인하지 못했어요. 다른 이름으로 검색해 주세요.', true); return; }
+    r = local;
+  }
+  state.settings.region = { name: String(r.name), admin: String(r.admin || ''), lat: Number(r.lat), lon: Number(r.lon) };
+  state.weather = null;
+  state.weatherError = '';
+  tempTouched = false;
+  persist();
+  openRegionSearch(false);
+  renderWeather();
+  renderTempControls();
+  setWeatherMsg('');
+  loadRegionWeather(state.settings.region, true, false);
+}
+
+function loadRegionWeather(region, applyTemp, silent){
+  var seq = ++weatherSeq;
+  weatherBusy = true;
+  state.weatherError = '';
+  renderWeather();
+  return fetchRegionWeather(region).then(function(w){
+    if (seq !== weatherSeq) return null;
+    weatherBusy = false;
+    state.weather = w;
+    state.weatherError = '';
+    saveWeatherCache(w);
+    if (applyTemp && !tempTouched) {
+      state.settings.baseTemp = clamp(w.temp, -15, 35);
+      persist();
+    }
+    renderWeather();
+    renderTempControls();
+    recomputeLooks();
+    renderLooks();
+    if (!silent) toast(w.name + ' ' + (w.cond || '') + ' ' + weatherRangeText(w) + ' · 코디를 다시 추천했어요');
+    return w;
+  }).catch(function(){
+    if (seq !== weatherSeq) return null;
+    weatherBusy = false;
+    state.weatherError = '날씨 연결 실패';
+    renderWeather();
+    renderTempControls();
+    if (!silent) toast('날씨를 못 불러왔어요 — 기본 기온으로 계산해요');
+    return null;
+  });
+}
+
+function loadWeatherCache(){
+  try {
+    var raw = Storage.get(WEATHER_CACHE_KEY);
+    if (!raw) return null;
+    var w = JSON.parse(raw);
+    return (w && w.name && isFinite(Number(w.temp))) ? w : null;
+  } catch (e) { return null; }
+}
+
+function saveWeatherCache(w){
+  try { Storage.set(WEATHER_CACHE_KEY, JSON.stringify(w)); } catch (e) {}
+}
+
+function initWeather(){
+  var region = normalizeRegion(state.settings.region);
+  state.settings.region = region;
+  var cached = loadWeatherCache();
+  if (cached && cached.name === region.name) {
+    state.weather = cached;
+    renderWeather();
+  }
+  loadRegionWeather(region, !tempTouched, true);
 }
 
 function renderTempControls(){
@@ -2173,7 +2740,7 @@ function renderTempControls(){
   slider.value = s.baseTemp;
   slider.min = -15;
   slider.max = 35;
-  slider.setAttribute('aria-valuetext', '현재 기온 ' + s.baseTemp + '도');
+  slider.setAttribute('aria-valuetext', '기온 직접 조정 ' + s.baseTemp + '도');
 
   var quick = [-8, -3, 2, 8, 16];
   $('#tempQuickRow').innerHTML = quick.map(function(t){
@@ -2195,6 +2762,7 @@ function renderTempControls(){
   else if (s.sensitivity < 0) hint = '추위를 타는 편이라 ' + s.baseTemp + '°C를 ' + eff + '°C처럼 계산해요. 더 따뜻한 조합을 골라요.';
   else hint = '더위를 타는 편이라 ' + s.baseTemp + '°C를 ' + eff + '°C처럼 계산해요. 더 가벼운 조합을 골라요.';
   $('#sensitivityHint').textContent = hint;
+  renderWeatherTags();
 }
 
 function renderLooks(){
@@ -2249,7 +2817,7 @@ function renderLooks(){
         ? canvasSlot(bagCellItem, 'bag', '')
         : '<div class="canvas-cell bag"><div class="silhouette"><span>👜</span><small>추천 ' + esc(bagIdea.name) + '</small></div></div>') +
       canvasSlot(lowerItem, 'bottom', '<span>👖</span>') +
-      '<div class="canvas-caption"><b>' + verdict + '</b><span>' + T + '°C · ' + esc(look.mood.label) + '</span></div>' +
+      '<div class="canvas-caption"><b>' + verdict + '</b><span>' + esc(weatherLine()) + '</span></div>' +
       '</div>';
 
     var rows = items.map(function(it){
@@ -2286,7 +2854,7 @@ function renderLooks(){
       canvasHtml +
       '<div class="look-head">' +
       '<span class="mood-badge">' + look.mood.emoji + ' ' + esc(look.mood.label) + '</span>' +
-      '<span class="look-temp">체감 ' + T + '°C</span>' +
+      '<span class="look-temp">' + esc(regionShortName()) + ' 체감 ' + T + '°C</span>' +
       '</div>' +
       '<h3 class="look-title">' + esc(title) + '</h3>' +
       '<p class="look-reason">' + esc(describeLook(items, look.mood, T)) + '</p>' +
@@ -3013,10 +3581,15 @@ function resetAll(){
   state.items = buildWardrobe();
   state.dislikes = [];
   state.settings = Object.assign({}, DEFAULT_SETTINGS);
+  state.settings.region = normalizeRegion(null);
+  state.weather = null;
+  state.weatherError = '';
+  tempTouched = false;
   persist();
   recomputeLooks();
   renderAll();
-  toast('전체 초기화했어요');
+  toast('전체 초기화했어요 — 기본 지역은 과천이에요');
+  initWeather();
 }
 
 function exportData(){
@@ -3057,6 +3630,7 @@ function bindEvents(){
 
     if (act === 'quick-temp') {
       state.settings.baseTemp = Number(el.getAttribute('data-temp'));
+      tempTouched = true;
       persist();
       renderTempControls();
       recomputeLooks();
@@ -3067,6 +3641,17 @@ function bindEvents(){
       renderTempControls();
       recomputeLooks();
       renderLooks();
+    } else if (act === 'region-open') {
+      openRegionSearch();
+    } else if (act === 'region-pick') {
+      selectRegion({
+        name: el.getAttribute('data-name'),
+        admin: el.getAttribute('data-admin') || '',
+        lat: el.getAttribute('data-lat'),
+        lon: el.getAttribute('data-lon')
+      });
+    } else if (act === 'weather-retry') {
+      loadRegionWeather(state.settings.region || DEFAULT_REGION, true, false);
     } else if (act === 'item-cold') {
       correctItemTemp(el.getAttribute('data-id'), 'cold');
     } else if (act === 'item-hot') {
@@ -3128,6 +3713,7 @@ function bindEvents(){
 
   $('#tempSlider').addEventListener('input', function(e){
     state.settings.baseTemp = Number(e.target.value);
+    tempTouched = true;
     $('#baseTempLabel').textContent = state.settings.baseTemp;
     $('#effectiveTempLabel').textContent = effectiveTemp();
     persist();
@@ -3135,6 +3721,34 @@ function bindEvents(){
     renderLooks();
     renderTempControls();
   });
+
+  /* ── 지역 검색 ── */
+  var regionGo = $('#regionGoBtn');
+  if (regionGo) regionGo.addEventListener('click', function(){ runRegionSearch($('#regionInput').value); });
+
+  var regionInput = $('#regionInput');
+  if (regionInput) {
+    regionInput.addEventListener('keydown', function(e){
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        runRegionSearch(regionInput.value);
+      } else if (e.key === 'Escape') {
+        openRegionSearch(false);
+      }
+    });
+    regionInput.addEventListener('input', function(){
+      var q = regionInput.value.trim();
+      if (!q) { renderRegionSuggest(null); setWeatherMsg(REGION_HELP); return; }
+      var locals = searchLocalRegions(q).slice(0, 8);
+      if (locals.length) {
+        renderRegionSuggest(locals);
+        setWeatherMsg('누르면 그 지역으로 바뀌어요. 다른 지역은 [검색]이나 Enter를 누르면 찾아봐요.');
+      } else {
+        renderRegionSuggest([]);
+        setWeatherMsg('‘' + q + '’ — [검색]을 누르면 이름으로 찾아봐요.');
+      }
+    });
+  }
 
   $('#refreshBtn').addEventListener('click', function(){
     recomputeLooks();
@@ -3234,9 +3848,11 @@ function boot(){
   }).join('');
 
   bindEvents();
+  renderWeather();
   recomputeLooks();
   renderAll();
   switchTab('recommend');
+  initWeather();
 
   window.WardrobeApp = {
     version: APP_VERSION,
@@ -3262,6 +3878,12 @@ function boot(){
     looks: function(){ return state.looks; },
     storageMode: function(){ return Storage.available ? 'localStorage' : 'memory'; },
     effectiveTemp: effectiveTemp,
+    weather: function(){ return state.weather; },
+    region: function(){ return state.settings.region; },
+    setRegion: selectRegion,
+    searchRegion: runRegionSearch,
+    refreshWeather: function(){ return loadRegionWeather(state.settings.region || DEFAULT_REGION, true, true); },
+    regions: REGIONS,
     sampleLinks: SAMPLE_LINKS,
     colors: COLOR_TABLE,
     materials: MATERIALS,
