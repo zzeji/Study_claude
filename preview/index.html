@@ -784,6 +784,14 @@ function uid(prefix){
   return (prefix || 'it') + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 function oneLine(arr){ return arr.filter(Boolean).join(' · '); }
+/* 받침 여부에 따라 '을/를' 선택 */
+function eulReul(word){
+  var s = String(word || '').trim();
+  if (!s) return '을';
+  var c = s.charCodeAt(s.length - 1);
+  if (c >= 0xAC00 && c <= 0xD7A3) return ((c - 0xAC00) % 28 === 0) ? '를' : '을';
+  return '를';
+}
 
 /* ══════════════════════════════════════════════════════════════
    2. 저장소 어댑터 (localStorage 불가 시 메모리 대체)
@@ -2263,7 +2271,7 @@ function renderLooks(){
     ) : '';
 
     var bagNote = !bagItem ? (
-      '<p class="bag-empty-note">👜 옷장에 가방이 없어 <b>' + esc(bagIdea.name) + '</b>을(를) 제안했어요. 가방을 등록하면 내 가방으로 콜라주가 채워져요.</p>'
+      '<p class="bag-empty-note">👜 옷장에 가방이 없어 <b>' + esc(bagIdea.name) + '</b>' + eulReul(bagIdea.name) + ' 제안했어요. 가방을 등록하면 내 가방으로 콜라주가 채워져요.</p>'
     ) : '';
 
     var missingHtml = missing.length ? (
@@ -2308,11 +2316,12 @@ function currentLookIndex(){
   if (!el) return 0;
   var cards = $$('.look-card', el);
   if (!cards.length) return 0;
-  var center = el.scrollLeft + el.clientWidth / 2;
+  var elRect = el.getBoundingClientRect();
+  var center = elRect.left + el.clientWidth / 2;
   var best = 0, bestD = Infinity;
   cards.forEach(function(c, i){
-    var mid = c.offsetLeft - el.offsetLeft + c.offsetWidth / 2;
-    var d = Math.abs(mid - center);
+    var r = c.getBoundingClientRect();
+    var d = Math.abs(r.left + r.width / 2 - center);
     if (d < bestD) { bestD = d; best = i; }
   });
   return best;
@@ -2336,7 +2345,9 @@ function goToLook(index){
   var cards = $$('.look-card', el);
   var card = cards[index];
   if (!card) return;
-  var left = card.offsetLeft - el.offsetLeft - (el.clientWidth - card.offsetWidth) / 2;
+  var elRect = el.getBoundingClientRect();
+  var cardRect = card.getBoundingClientRect();
+  var left = el.scrollLeft + (cardRect.left - elRect.left) - (el.clientWidth - cardRect.width) / 2;
   try { el.scrollTo({ left:left, behavior:'smooth' }); } catch (e) { el.scrollLeft = left; }
   updateLookIndicator(index);
 }
